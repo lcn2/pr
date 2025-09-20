@@ -99,6 +99,12 @@
 
 
 /*
+ * global variables
+ */
+extern const char *const pr_version;	/* library version format: major.minor YYYY-MM-DD */
+
+
+/*
  * external function declarations
  */
 extern bool chk_stdio_printf_err(FILE *stream, int ret);

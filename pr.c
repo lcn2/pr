@@ -54,6 +54,12 @@
 
 
 /*
+ * global message control variables
+ */
+const char *const pr_version = PR_VERSION;    /* library version format: major.minor YYYY-MM-DD */
+
+
+/*
  * chk_stdio_printf_err - check for a print function call errors
  *
  * Here "print function call" refers to functions such as:

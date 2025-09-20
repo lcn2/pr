@@ -240,11 +240,12 @@ SH_PICKY_OPTIONS= -c -e -s -t8 -u -v -w132
 #
 MAN1_PAGES=
 
-pr_MAN3=
-pr_MAN3_DUPS=
-# NON_STANDARD_SORT	man/man3/pr_alloced.3 man/man3/pr_create.3 man/man3/pr_qsort.3
-
-MAN3_PAGES= ${pr_MAN3} ${pr_MAN3_DUPS}
+PR_MAN3= man/man3/pr.3
+PR_MAN3_DUPS= \
+	man/man3/chk_stdio_printf_err.3 man/man3/para.3 man/man3/fpara.3 man/man3/vfpr.3 man/man3/fpr.3 \
+	man/man3/readline.3 man/man3/readline_dup.3 man/man3/read_all.3 man/man3/clearerr_or_fclose.3 \
+	man/man3/fprint_line_buf.3 man/man3/fprint_line_str.3 man/man3/open_dir_file.3
+MAN3_PAGES= ${PR_MAN3} ${PR_MAN3_DUPS}
 MAN8_PAGES=
 ALL_MAN_PAGES= ${MAN1_PAGES} ${MAN3_PAGES} ${MAN8_PAGES}
 
@@ -284,7 +285,7 @@ ALL_SRC= ${ALL_CSRC} ${ALL_HSRC} ${SH_FILES}
 # all man pages that built and removed by make clobber
 #
 MAN1_BUILT=
-MAN3_BUILT=
+MAN3_BUILT= ${PR_MAN3_DUPS}
 MAN8_BUILT=
 ALL_MAN_BUILT= ${MAN1_BUILT} ${MAN3_BUILT} ${MAN8_BUILT}
 
@@ -410,10 +411,10 @@ dyn_test: dyn_test.o pr.o
 
 # form the duplicate copies of the `pr(3)` man page
 #
-${pr_MAN3_DUPS}: ${pr_MAN3}
-	@for i in ${pr_MAN3_DUPS}; do \
-	    if ! ${CMP} -s ${pr_MAN3} "$$i" > /dev/null 2>&1; then \
-		${CP} -f -p -v ${pr_MAN3} "$$i"; \
+${PR_MAN3_DUPS}: ${PR_MAN3}
+	@for i in ${PR_MAN3_DUPS}; do \
+	    if ! ${CMP} -s ${PR_MAN3} "$$i" > /dev/null 2>&1; then \
+		${CP} -f -p -v ${PR_MAN3} "$$i"; \
 	    fi; \
 	done
 
@@ -675,7 +676,7 @@ legacy_clobber: legacy_clean
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ starting"
 	${S} echo
-	${E} ${RM} ${RM_V} -f pr.a
+	${S} echo "${OUR_NAME}: nothing to do"
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ ending"
 
@@ -703,7 +704,7 @@ clobber: legacy_clobber clean
 	${E} ${RM} ${RM_V} -f ${EXTERN_CLOBBER}
 	${E} ${RM} ${RM_V} -f tags ${LOCAL_DIR_TAGS}
 	${E} ${RM} ${RM_V} -f Makefile.orig
-	${E} ${RM} ${RM_V} -f ${pr_MAN3_DUPS}
+	${E} ${RM} ${RM_V} -f ${PR_MAN3_DUPS}
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ ending"
 
@@ -717,8 +718,8 @@ install: all install_man
 	${I} ${LN} -s ${LIBA_TARGETS} ${DEST_LIB}/`echo ${LIBA_TARGETS} | ${SED} -e 's/^lib//'`
 	${I} ${INSTALL} ${INSTALL_V} -d -m 0775 ${DEST_INCLUDE}
 	${I} ${INSTALL} ${INSTALL_V} -m 0444 ${H_SRC_TARGETS} ${DEST_INCLUDE}
-	${I} ${INSTALL} ${INSTALL_V} -d -m 0775 ${DEST_DIR}
-	${I} ${INSTALL} ${INSTALL_V} -m 0555 ${SH_TARGETS} ${PROG_TARGETS} ${DEST_DIR}
+#	${I} ${INSTALL} ${INSTALL_V} -d -m 0775 ${DEST_DIR}
+#	${I} ${INSTALL} ${INSTALL_V} -m 0555 ${SH_TARGETS} ${PROG_TARGETS} ${DEST_DIR}
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ ending"
 
@@ -731,6 +732,18 @@ uninstall:
 	${E} ${RM} -f ${RM_V} ${DEST_INCLUDE}/pr.h
 	${E} ${RM} -f ${RM_V} ${DEST_DIR}/pr_test
 	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/pr.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/chk_stdio_printf_err.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/para.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/fpara.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/vfpr.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/fpr.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/readline.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/readline_dup.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/read_all.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/clearerr_or_fclose.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/fprint_line_buf.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/fprint_line_str.3
+	${E} ${RM} -f ${RM_V} ${MAN3_DIR}/open_dir_file.3
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ ending"
 
