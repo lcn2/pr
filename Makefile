@@ -213,10 +213,10 @@ LD_SPECIAL=
 # NOTE: For cases such as the [mkiocccentry toolkit](https://github.com/ioccc-src/mkiocccentry)
 # 	the top level Makefile can set ${LD_DIR} to something such as:
 #
-# 	    LD_DIR= -L../../dbg -L../../dyn_array
+# 	    LD_DIR= -L../dbg -L../dyn_array -L../pr
 #
 LD_DIR=
-#LD_DIR= -L../../dbg -L../../dyn_array
+#LD_DIR= -L../dbg -L../dyn_array -L../pr
 
 # linker options
 #
