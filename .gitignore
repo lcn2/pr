@@ -1,0 +1,7 @@
+# sort using: sort -d -u
+?
+*.[ao]
+*.dSYM/
+NOTES
+.*.swp
+/tags
