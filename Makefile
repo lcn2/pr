@@ -218,7 +218,7 @@ CFLAGS= ${C_STD} ${C_OPT} ${WARN_FLAGS} ${C_SPECIAL} ${LDFLAGS}
 
 # source files that are permanent (not made, nor removed)
 #
-C_SRC= pr.c
+C_SRC= pr.c pr_test.c
 H_SRC= pr.h
 #
 PICKY_OPTIONS= -c -e -s -t8 -u -v -w132
@@ -270,7 +270,7 @@ LIB_OBJS= pr.o
 
 # NOTE: ${OTHER_OBJS} are objects NOT put into a library and removed by make clean
 #
-OTHER_OBJS=
+OTHER_OBJS= pr_test.o
 
 # all intermediate files which are also removed by make clean
 #
@@ -314,7 +314,7 @@ EXTERN_H= pr.h
 EXTERN_O= pr.o
 EXTERN_MAN= ${ALL_MAN_TARGETS}
 EXTERN_LIBA= libpr.a
-EXTERN_PROG=
+EXTERN_PROG= pr_test
 
 # NOTE: ${EXTERN_CLOBBER} used outside of this directory and removed by make clobber
 #
@@ -342,7 +342,7 @@ SH_TARGETS=
 
 # program targets to make by all, installed by install, and removed by clobber
 #
-PROG_TARGETS=
+PROG_TARGETS= pr_test
 
 # include files but NOT to removed by clobber
 #
@@ -403,11 +403,12 @@ libpr.a: ${LIB_OBJS}
 	${AR} -r -u -v $@ $^
 	${RANLIB} $@
 
-dyn_test.o: dyn_test.c pr.h
-	${CC} ${CFLAGS} -UDBG_USE dyn_test.c -c
+pr_test.o: pr_test.c pr.h
+	${CC} ${CFLAGS} pr_test.c -c
 
-dyn_test: dyn_test.o pr.o
-	${CC} ${CFLAGS} dyn_test.o pr.o -o dyn_test
+pr_test: pr_test.o pr.o
+	# XXX - when this repo is "included" in the mkiocccentry repo, we cannot use -ldbg -ldyn_array - XXX
+	${CC} ${CFLAGS} pr_test.o pr.o -ldbg -ldyn_array -o pr_test
 
 # form the duplicate copies of the `pr(3)` man page
 #
@@ -453,19 +454,19 @@ test:
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ starting"
 	${S} echo
-	${Q} if [[ ! -x ./dyn_test ]]; then \
-	    echo "${OUR_NAME}: ERROR: executable not found: ./dyn_test" 1>&2; \
+	${Q} if [[ ! -x ./pr_test ]]; then \
+	    echo "${OUR_NAME}: ERROR: executable not found: ./pr_test" 1>&2; \
 	    echo "${OUR_NAME}: ERROR: unable to perform complete test" 1>&2; \
 	    exit 1; \
 	else \
-	    echo ./dyn_test -v ${VERBOSITY}; \
-	    ./dyn_test -v ${VERBOSITY}; \
+	    echo ./pr_test -v ${VERBOSITY}; \
+	    ./pr_test -v ${VERBOSITY}; \
 	    EXIT_CODE="$$?"; \
 	    if [[ $$EXIT_CODE -ne 0 ]]; then \
-		echo "${OUR_NAME}: ERROR: dyn_test failed, error code: $$EXIT_CODE"; \
+		echo "${OUR_NAME}: ERROR: pr_test failed, error code: $$EXIT_CODE"; \
 		exit "$$EXIT_CODE"; \
 	    else \
-		echo ${OUR_NAME}: "PASSED: dyn_test"; \
+		echo ${OUR_NAME}: "PASSED: pr_test"; \
 	    fi; \
 	fi
 	${S} echo
@@ -718,8 +719,8 @@ install: all install_man
 	${I} ${LN} -s ${LIBA_TARGETS} ${DEST_LIB}/`echo ${LIBA_TARGETS} | ${SED} -e 's/^lib//'`
 	${I} ${INSTALL} ${INSTALL_V} -d -m 0775 ${DEST_INCLUDE}
 	${I} ${INSTALL} ${INSTALL_V} -m 0444 ${H_SRC_TARGETS} ${DEST_INCLUDE}
-#	${I} ${INSTALL} ${INSTALL_V} -d -m 0775 ${DEST_DIR}
-#	${I} ${INSTALL} ${INSTALL_V} -m 0555 ${SH_TARGETS} ${PROG_TARGETS} ${DEST_DIR}
+	${I} ${INSTALL} ${INSTALL_V} -d -m 0775 ${DEST_DIR}
+	${I} ${INSTALL} ${INSTALL_V} -m 0555 ${SH_TARGETS} ${PROG_TARGETS} ${DEST_DIR}
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ ending"
 
@@ -784,3 +785,4 @@ depend: ${ALL_CSRC}
 
 ### DO NOT CHANGE MANUALLY BEYOND THIS LINE
 pr.o: pr.c pr.h
+pr_test.o: pr.h pr_test.c

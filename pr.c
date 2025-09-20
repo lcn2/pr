@@ -2,6 +2,7 @@
  * pr - stdio helper library
  *
  * "Small acts of kindness can fill the world with light."
+ *
  *	-- J.R.R. Tolkien
  *
  * Copyright (c) 2008-2025 by Landon Curt Noll and Cody Boone Ferguson.  All rights reserved.
