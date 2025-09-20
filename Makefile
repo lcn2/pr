@@ -285,7 +285,7 @@ ALL_SRC= ${ALL_CSRC} ${ALL_HSRC} ${SH_FILES}
 # all man pages that built and removed by make clobber
 #
 MAN1_BUILT=
-MAN3_BUILT= ${PR_MAN3_DUPS}
+MAN3_BUILT=
 MAN8_BUILT=
 ALL_MAN_BUILT= ${MAN1_BUILT} ${MAN3_BUILT} ${MAN8_BUILT}
 
