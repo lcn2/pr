@@ -465,7 +465,7 @@ man/man3/pr.3:
 # repo tools - rules for those who maintain the this repo #
 ###########################################################
 
-test:
+test: pr_test
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ starting"
 	${S} echo
