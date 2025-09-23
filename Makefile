@@ -721,6 +721,7 @@ clobber: legacy_clobber clean
 	${E} ${RM} ${RM_V} -f tags ${LOCAL_DIR_TAGS}
 	${E} ${RM} ${RM_V} -f Makefile.orig
 	${E} ${RM} ${RM_V} -f ${PR_MAN3_DUPS}
+	${E} ${RM} ${RM_V} -r -f test_pr/
 	${S} echo
 	${S} echo "${OUR_NAME}: make $@ ending"
 
