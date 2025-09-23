@@ -1548,11 +1548,6 @@ open_dir_file(char const *dir, char const *file)
 	err(111, __func__, "file is not a regular file: %s", file);
 	not_reached();
     }
-    ret = faccessat(fd, file, R_OK, AT_EACCESS);
-    if (ret < 0) {
-	err(112, __func__, "file is not a readable file: %s", file);
-	not_reached();
-    }
 
     /*
      * if we did a chdir to dir, chdir back to previous cwd
@@ -1565,13 +1560,13 @@ open_dir_file(char const *dir, char const *file)
 	errno = 0;                  /* pre-clear errno for errp() */
 	ret = fchdir(cwd);
 	if (ret < 0) {
-	    errp(113, __func__, "cannot fchdir to the previous current directory");
+	    errp(112, __func__, "cannot fchdir to the previous current directory");
 	    not_reached();
 	}
 	errno = 0;                  /* pre-clear errno for errp() */
 	ret = close(cwd);
 	if (ret < 0) {
-	    errp(114, __func__, "close of previous current directory failed");
+	    errp(113, __func__, "close of previous current directory failed");
 	    not_reached();
 	}
     }
