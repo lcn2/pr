@@ -70,7 +70,7 @@ jobs:
 
     # we pre-install from the dyn_array repo so that the Autobuild below will work
     #
-    - name: clone cdyn_array
+    - name: clone dyn_array
       run: git clone https://github.com/lcn2/dyn_array
     - name: install dyn_array
       run: cd dyn_array && sudo make clobber all install
