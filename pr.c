@@ -36,7 +36,7 @@
  * The origin of libpr dates back to code written by Landon Curt Noll around 2008.
  *
  * That 2008 code was copied into the jparse repo, and the mkiocccentry toolkit repo
- * by Landon Curt Noll.  While in the jparse repo, both Landon Curt Noll and
+ * by Landon Curt Noll. While in the jparse repo, both Landon Curt Noll and
  * Cody Boone Ferguson added to and improved this code base:
  *
  *  @xexyl
