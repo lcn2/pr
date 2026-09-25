@@ -852,7 +852,7 @@ test_open_dir_file_path_traversal(void)
 	rmdir(dir);
 	return true;
     }
-    if (symlink(outside_template, symlink_path) != 0) {
+    if (symlink(relative_escape, symlink_path) != 0) {
 	warnp(__func__, "symlink failed");
 	unlink(allowed_path);
 	unlink(outside_template);
