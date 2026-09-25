@@ -105,34 +105,56 @@ static const char * const usage_msg =
  * forward declarations
  */
 static void usage(int exitcode, char const *prog, char const *str);
-static size_t count_open_fds(void);
+static long fd_limit(void);
+static bool fd_is_open(int fd);
+static bool snapshot_open_fds(bool *open_fds, size_t fd_count);
 static bool test_readline_dup_strip(void);
 static bool test_read_all_chunk_terminated(void);
 static bool test_open_dir_file_no_fd_leak(void);
 
 
 /*
- * count_open_fds - count currently open file descriptors
+ * fd_limit - return the process file descriptor limit used by tests
  */
-static size_t
-count_open_fds(void)
+static long
+fd_limit(void)
 {
-    long fd = 0;
     long max_fd = 0;
-    size_t count = 0;
 
     max_fd = sysconf(_SC_OPEN_MAX);
     if (max_fd <= 0) {
 	max_fd = 1024;
     }
+    return max_fd;
+}
 
-    for (fd = 0; fd < max_fd; ++fd) {
-	errno = 0;
-	if (fcntl((int)fd, F_GETFD) >= 0 || errno != EBADF) {
-	    ++count;
-	}
+
+/*
+ * fd_is_open - determine if a file descriptor is open
+ */
+static bool
+fd_is_open(int fd)
+{
+    errno = 0;
+    return fcntl(fd, F_GETFD) >= 0 || errno != EBADF;
+}
+
+
+/*
+ * snapshot_open_fds - record which file descriptors are currently open
+ */
+static bool
+snapshot_open_fds(bool *open_fds, size_t fd_count)
+{
+    size_t i;
+
+    if (open_fds == NULL) {
+	return false;
     }
-    return count;
+    for (i = 0; i < fd_count; ++i) {
+	open_fds[i] = fd_is_open((int)i);
+    }
+    return true;
 }
 
 
@@ -244,11 +266,15 @@ test_open_dir_file_no_fd_leak(void)
 {
     char path[] = "/tmp/pr_test_open_dir_file.XXXXXX";
     int fd = -1;
+    int stream_fd = -1;
+    long max_fd = 0;
+    bool *before = NULL;
+    bool *during = NULL;
+    bool *after = NULL;
     FILE *stream = NULL;
-    size_t before = 0;
-    size_t during = 0;
-    size_t after = 0;
+    size_t new_fd_count = 0;
     bool success = false;
+    long i;
 
     fd = mkstemp(path);
     if (fd < 0) {
@@ -267,22 +293,71 @@ test_open_dir_file_no_fd_leak(void)
 	return false;
     }
 
-    before = count_open_fds();
+    max_fd = fd_limit();
+    before = calloc((size_t)max_fd, sizeof(*before));
+    during = calloc((size_t)max_fd, sizeof(*during));
+    after = calloc((size_t)max_fd, sizeof(*after));
+    if (before == NULL || during == NULL || after == NULL) {
+	warnp(__func__, "calloc failed");
+	free(before);
+	free(during);
+	free(after);
+	(void)unlink(path);
+	return false;
+    }
+    if (snapshot_open_fds(before, (size_t)max_fd) == false) {
+	warn(__func__, "snapshot_open_fds failed before open_dir_file");
+	free(before);
+	free(during);
+	free(after);
+	(void)unlink(path);
+	return false;
+    }
+
     stream = open_dir_file(NULL, path);
-    during = count_open_fds();
+    stream_fd = fileno(stream);
+    if (stream_fd < 0) {
+	warn(__func__, "fileno returned: %d < 0", stream_fd);
+    } else if (snapshot_open_fds(during, (size_t)max_fd) == false) {
+	warn(__func__, "snapshot_open_fds failed while stream was open");
+    } else {
+	for (i = 0; i < max_fd; ++i) {
+	    if (during[i] && before[i] == false) {
+		++new_fd_count;
+		if (i != stream_fd) {
+		    warn(__func__, "open_dir_file(NULL, ...) leaked unexpected fd: %ld", i);
+		    break;
+		}
+	    }
+	}
+	if (new_fd_count != 1) {
+	    warn(__func__, "open_dir_file(NULL, ...) changed %zu file descriptors while stream was open", new_fd_count);
+	}
+    }
     if (stream != NULL) {
 	clearerr_or_fclose(stream);
     }
-    after = count_open_fds();
-    if (during != before + 1) {
-	warn(__func__, "open_dir_file(NULL, ...) changed open fd count while stream was open: %zu -> %zu",
-	     before, during);
-    } else if (after != before) {
-	warn(__func__, "open_dir_file(NULL, ...) changed open fd count: %zu -> %zu", before, after);
+    if (snapshot_open_fds(after, (size_t)max_fd) == false) {
+	warn(__func__, "snapshot_open_fds failed after close");
+    } else if (stream_fd >= 0 && fd_is_open(stream_fd)) {
+	warn(__func__, "open_dir_file(NULL, ...) left returned fd open: %d", stream_fd);
+    } else if (new_fd_count != 1) {
+	/* already warned above */
     } else {
-	success = true;
+	for (i = 0; i < max_fd; ++i) {
+	    if (after[i] && before[i] == false) {
+		warn(__func__, "open_dir_file(NULL, ...) left leaked fd open after close: %ld", i);
+		break;
+	    }
+	}
+	if (i >= max_fd) {
+	    success = true;
+	}
     }
 
+    free(before);
+    free(during);
+    free(after);
     (void)unlink(path);
     return success;
 }
