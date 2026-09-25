@@ -654,6 +654,11 @@ test_open_dir_file_fd_leak(void)
 
     before = count_open_fds();
     stream = open_dir_file(NULL, path);
+    if (stream == NULL) {
+	warn(__func__, "open_dir_file(NULL, ...) returned NULL");
+	unlink(path);
+	return true;
+    }
     during = count_open_fds();
     if (during != before + 1) {
 	warn(__func__, "open_dir_file(NULL, ...) leaked file descriptors: before=%ld during=%ld", before, during);
@@ -729,10 +734,11 @@ test_open_dir_file_path_traversal(void)
     static char const sample[] = "path traversal regression\n";
     char dir_template[] = "/tmp/pr_test.open_dir_file.dir.XXXXXX";
     char allowed_path[128];
-    char outside_template[] = "/tmp/pr_test.open_dir_file.outside.XXXXXX";
+    char outside_template[128];
     char relative_escape[128];
     char *dir = NULL;
     char *outside_base = NULL;
+    char *parent_slash = NULL;
     FILE *stream = NULL;
     int fd = -1;
     ssize_t written;
@@ -768,7 +774,27 @@ test_open_dir_file_path_traversal(void)
 	rmdir(dir);
 	return true;
     }
+    parent_slash = strrchr(dir, '/');
+    if (parent_slash == NULL || parent_slash == dir) {
+	warn(__func__, "unable to compute parent directory");
+	unlink(allowed_path);
+	rmdir(dir);
+	return true;
+    }
+    if (snprintf(outside_template, sizeof(outside_template), "%.*s/%s",
+		 (int)(parent_slash - dir), dir, "pr_test.open_dir_file.outside.XXXXXX") >= (int)sizeof(outside_template)) {
+	warn(__func__, "outside template overflow");
+	unlink(allowed_path);
+	rmdir(dir);
+	return true;
+    }
     stream = open_dir_file(dir, "allowed.txt");
+    if (stream == NULL) {
+	warn(__func__, "open_dir_file(dir, \"allowed.txt\") returned NULL");
+	unlink(allowed_path);
+	rmdir(dir);
+	return true;
+    }
     if (stream_equals(stream, sample, sizeof(sample) - 1) == true) {
 	fclose(stream);
 	unlink(allowed_path);
