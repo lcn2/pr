@@ -270,7 +270,9 @@ test_open_dir_file_no_fd_leak(void)
     before = count_open_fds();
     stream = open_dir_file(NULL, path);
     during = count_open_fds();
-    clearerr_or_fclose(stream);
+    if (stream != NULL) {
+	clearerr_or_fclose(stream);
+    }
     after = count_open_fds();
     if (during != before + 1) {
 	warn(__func__, "open_dir_file(NULL, ...) changed open fd count while stream was open: %zu -> %zu",
