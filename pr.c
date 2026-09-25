@@ -117,35 +117,6 @@ fprint_line_count_add(size_t *count, size_t increment)
 
 
 /*
- * dyn_array_detach_u8 - transfer a dyn_array uint8_t backing store to the caller
- *
- * given:
- *	array_p		address of dyn_array pointer created by dyn_array_create()
- *
- * returns:
- *	backing storage pointer (caller now owns it), or NULL
- *
- * This helper releases the heap-allocated dyn_array container while preserving
- * the allocated backing store for the caller.
- */
-static uint8_t *
-dyn_array_detach_u8(struct dyn_array **array_p)
-{
-    struct dyn_array *array = NULL;
-    uint8_t *ret = NULL;
-
-    if (array_p == NULL || *array_p == NULL) {
-	return NULL;
-    }
-    array = *array_p;
-    ret = array->data;
-    array->data = NULL;
-    dyn_array_destroy(array_p);
-    return ret;
-}
-
-
-/*
  * chk_stdio_printf_err - check for a print function call errors
  *
  * Here "print function call" refers to functions such as:
@@ -1050,9 +1021,19 @@ read_all(FILE *stream, size_t *psize)
     }
 
     /*
-     * return the allocated buffer and release the dyn_array container
+     * copy data out of dyn_array so we can release the dyn_array container
+     * without relying on private dyn_array internals
      */
-    ret = dyn_array_detach_u8(&array);
+    errno = 0;			/* pre-clear errno for errp() */
+    ret = calloc((size_t)used + 1, sizeof(*ret));
+    if (ret == NULL) {
+	errp(103, __func__, "calloc read_all return buffer failed");
+	not_reached();
+    }
+    if (used > 0) {
+	memcpy(ret, dyn_array_addr(array, uint8_t, 0), (size_t)used);
+    }
+    dyn_array_destroy(&array);
     return ret;
 }
 
