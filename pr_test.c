@@ -215,9 +215,9 @@ open_tmp_stream(void const *buf, size_t len)
     if (len > 0) {
 	written = fwrite(buf, 1, len, stream);
 	if (written != len) {
-    	warnp(__func__, "fwrite wrote %zu bytes, expected %zu", written, len);
-    	fclose(stream);
-    	return NULL;
+	    warnp(__func__, "fwrite wrote %zu bytes, expected %zu", written, len);
+	    fclose(stream);
+	    return NULL;
 	}
     }
     rewind(stream);
@@ -241,10 +241,9 @@ stream_equals(FILE *stream, char const *expected, size_t expected_len)
 	return true;
     }
 
-
-        if (fseek(stream, 0L, SEEK_END) != 0) {
-    	warnp(__func__, "fseek to end failed");
-    	return true;
+    if (fseek(stream, 0L, SEEK_END) != 0) {
+	warnp(__func__, "fseek to end failed");
+	return true;
     }
     stream_len = ftell(stream);
     if (stream_len < 0) {
@@ -264,14 +263,15 @@ stream_equals(FILE *stream, char const *expected, size_t expected_len)
     got = fread(buf, 1, expected_len, stream);
     if (got != expected_len) {
 	warnp(__func__, "fread read %zu bytes, expected %zu", got, expected_len);
-	goto done;
+	free(buf);
+	return failed;
     }
     if (memcmp(buf, expected, expected_len) != 0) {
 	warn(__func__, "stream contents did not match expected output");
-	goto done;
+	free(buf);
+	return failed;
     }
     failed = false;
-done:
     free(buf);
     return failed;
 }
@@ -320,30 +320,30 @@ test_read_all_reuse(void)
 
 	stream = open_tmp_stream(sample, sample_len);
 	if (stream == NULL) {
-    	failed = true;
-    	break;
+	    failed = true;
+	    break;
 	}
 	data = read_all(stream, &len);
 	if (data == NULL) {
-    	warn(__func__, "read_all returned NULL on iteration %zu", i);
-    	failed = true;
-    	fclose(stream);
-    	break;
+	    warn(__func__, "read_all returned NULL on iteration %zu", i);
+	    failed = true;
+	    fclose(stream);
+	    break;
 	}
 	if (len != sample_len) {
-    	warn(__func__, "read_all length mismatch: got %zu expected %zu", len, sample_len);
-    	failed = true;
+	    warn(__func__, "read_all length mismatch: got %zu expected %zu", len, sample_len);
+	    failed = true;
 	} else if (memcmp(data, sample, sample_len) != 0) {
-    	warn(__func__, "read_all data mismatch on iteration %zu", i);
-    	failed = true;
+	    warn(__func__, "read_all data mismatch on iteration %zu", i);
+	    failed = true;
 	} else if (data[len] != '\0') {
-    	warn(__func__, "read_all buffer missing trailing NUL on iteration %zu", i);
-    	failed = true;
+	    warn(__func__, "read_all buffer missing trailing NUL on iteration %zu", i);
+	    failed = true;
 	}
 	free(data);
 	fclose(stream);
 	if (failed == true) {
-    	break;
+	    break;
 	}
     }
     free(sample);
