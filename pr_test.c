@@ -60,6 +60,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 /*
@@ -103,6 +105,180 @@ static const char * const usage_msg =
  * forward declarations
  */
 static void usage(int exitcode, char const *prog, char const *str);
+static size_t count_open_fds(void);
+static bool test_readline_dup_strip(void);
+static bool test_read_all_chunk_terminated(void);
+static bool test_open_dir_file_no_fd_leak(void);
+
+
+/*
+ * count_open_fds - count currently open file descriptors
+ */
+static size_t
+count_open_fds(void)
+{
+    long fd = 0;
+    long max_fd = 0;
+    size_t count = 0;
+
+    max_fd = sysconf(_SC_OPEN_MAX);
+    if (max_fd <= 0) {
+	max_fd = 1024;
+    }
+
+    for (fd = 0; fd < max_fd; ++fd) {
+	errno = 0;
+	if (fcntl((int)fd, F_GETFD) >= 0 || errno != EBADF) {
+	    ++count;
+	}
+    }
+    return count;
+}
+
+
+/*
+ * test_readline_dup_strip - verify readline_dup strips trailing whitespace
+ */
+static bool
+test_readline_dup_strip(void)
+{
+    FILE *stream = NULL;
+    char *linep = NULL;
+    char *dup = NULL;
+    size_t len = 0;
+    bool success = false;
+
+    stream = tmpfile();
+    if (stream == NULL) {
+	warnp(__func__, "tmpfile failed");
+	return false;
+    }
+    if (fputs("abc \t\n", stream) == EOF) {
+	warnp(__func__, "fputs failed");
+    } else if (fflush(stream) == EOF) {
+	warnp(__func__, "fflush failed");
+    } else {
+	rewind(stream);
+	dup = readline_dup(&linep, true, &len, stream);
+	if (dup == NULL) {
+	    warn(__func__, "readline_dup returned NULL");
+	} else if (len != 3) {
+	    warn(__func__, "readline_dup returned length: %zu != 3", len);
+	} else if (strcmp(dup, "abc") != 0) {
+	    warn(__func__, "readline_dup returned <%s> != <abc>", dup);
+	} else {
+	    success = true;
+	}
+    }
+
+    free(dup);
+    free(linep);
+    clearerr_or_fclose(stream);
+    return success;
+}
+
+
+/*
+ * test_read_all_chunk_terminated - verify read_all keeps an extra NUL byte
+ */
+static bool
+test_read_all_chunk_terminated(void)
+{
+    FILE *stream = NULL;
+    unsigned char *data = NULL;
+    size_t len = 0;
+    size_t written = 0;
+    char chunk[4096];
+    bool success = false;
+
+    memset(chunk, 'A', sizeof(chunk));
+    stream = tmpfile();
+    if (stream == NULL) {
+	warnp(__func__, "tmpfile failed");
+	return false;
+    }
+
+    while (written < READ_ALL_CHUNK) {
+	size_t to_write = READ_ALL_CHUNK - written;
+
+	if (to_write > sizeof(chunk)) {
+	    to_write = sizeof(chunk);
+	}
+	if (fwrite(chunk, 1, to_write, stream) != to_write) {
+	    warnp(__func__, "fwrite failed after %zu bytes", written);
+	    clearerr_or_fclose(stream);
+	    return false;
+	}
+	written += to_write;
+    }
+    if (fflush(stream) == EOF) {
+	warnp(__func__, "fflush failed");
+    } else if (fseek(stream, 0L, SEEK_SET) != 0) {
+	warnp(__func__, "fseek failed");
+    } else {
+	data = read_all(stream, &len);
+	if (data == NULL) {
+	    warn(__func__, "read_all returned NULL");
+	} else if (len != READ_ALL_CHUNK) {
+	    warn(__func__, "read_all length: %zu != %d", len, READ_ALL_CHUNK);
+	} else if (data[0] != 'A' || data[len - 1] != 'A') {
+	    warn(__func__, "read_all data did not preserve written content");
+	} else if (data[len] != '\0') {
+	    warn(__func__, "read_all buffer is not NUL terminated at offset %zu", len);
+	} else {
+	    success = true;
+	}
+    }
+
+    free(data);
+    clearerr_or_fclose(stream);
+    return success;
+}
+
+
+/*
+ * test_open_dir_file_no_fd_leak - verify open_dir_file(NULL, ...) closes temp cwd state
+ */
+static bool
+test_open_dir_file_no_fd_leak(void)
+{
+    char path[] = "/tmp/pr_test_open_dir_file.XXXXXX";
+    int fd = -1;
+    FILE *stream = NULL;
+    size_t before = 0;
+    size_t after = 0;
+    bool success = false;
+
+    fd = mkstemp(path);
+    if (fd < 0) {
+	warnp(__func__, "mkstemp failed");
+	return false;
+    }
+    if (write(fd, "data\n", 5) != 5) {
+	warnp(__func__, "write failed");
+	(void)close(fd);
+	(void)unlink(path);
+	return false;
+    }
+    if (close(fd) != 0) {
+	warnp(__func__, "close failed");
+	(void)unlink(path);
+	return false;
+    }
+
+    before = count_open_fds();
+    stream = open_dir_file(NULL, path);
+    clearerr_or_fclose(stream);
+    after = count_open_fds();
+    if (after != before) {
+	warn(__func__, "open_dir_file(NULL, ...) changed open fd count: %zu -> %zu", before, after);
+    } else {
+	success = true;
+    }
+
+    (void)unlink(path);
+    return success;
+}
 
 
 int
@@ -157,7 +333,15 @@ main(int argc, char *argv[])
 	not_reached();
     }
 
-    /* XXX - add test code here - XXX */
+    if (test_readline_dup_strip() == false) {
+	error = true;
+    }
+    if (test_read_all_chunk_terminated() == false) {
+	error = true;
+    }
+    if (test_open_dir_file_no_fd_leak() == false) {
+	error = true;
+    }
 
     /*
      * exit based on the test result
