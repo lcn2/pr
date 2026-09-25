@@ -246,6 +246,7 @@ test_open_dir_file_no_fd_leak(void)
     int fd = -1;
     FILE *stream = NULL;
     size_t before = 0;
+    size_t during = 0;
     size_t after = 0;
     bool success = false;
 
@@ -268,9 +269,13 @@ test_open_dir_file_no_fd_leak(void)
 
     before = count_open_fds();
     stream = open_dir_file(NULL, path);
+    during = count_open_fds();
     clearerr_or_fclose(stream);
     after = count_open_fds();
-    if (after != before) {
+    if (during != before + 1) {
+	warn(__func__, "open_dir_file(NULL, ...) changed open fd count while stream was open: %zu -> %zu",
+	     before, during);
+    } else if (after != before) {
 	warn(__func__, "open_dir_file(NULL, ...) changed open fd count: %zu -> %zu", before, after);
     } else {
 	success = true;
