@@ -1,6 +1,18 @@
 # Major changes to the IOCCC entry toolkit
 
 
+## Pending
+
+Fixed `read_all()` to release the dynamic-array container after transferring
+ownership of its backing buffer to the caller, and clarified the API behavior
+for empty input, preset EOF, preset error indicators, and caller ownership.
+
+Hardened `fprint_line_buf()` length accounting against `ssize_t` overflow,
+made `fprint_line_str()` const-correct, normalized NULL diagnostic names in
+poll/flush diagnostics, corrected `size_t` debug/warn formats, and added
+focused regression tests for these cases.
+
+
 ## Release 1.1.6 2026-06-13
 
 Remove calls to `isascii()` as this function was removed from POSIX.1-2024 (it

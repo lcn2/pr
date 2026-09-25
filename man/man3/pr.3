@@ -69,7 +69,7 @@
 .sp
 .B "ssize_t fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end);"
 .br
-.B "ssize_t fprint_line_str(FILE *stream, char *str, size_t *retlen, int start, int end);"
+.B "ssize_t fprint_line_str(FILE *stream, const char *str, size_t *retlen, int start, int end);"
 .sp
 .B "FILE *open_dir_file(char const *dir, char const *file);"
 .sp
@@ -100,7 +100,39 @@ Depending on the circumstances this can be an issue so this function allows one 
 .SH RETURN VALUE
 XXX - add RETURN VALUE here - XXX
 .SH NOTES
-XXX - add NOTES here - XXX
+.BR readline_dup ()
+returns a caller-owned duplicate string, if any, while the
+.BR getline (3)
+buffer referenced through
+.I linep
+remains caller-owned across successful reads and EOF.  Each call may free
+and replace any prior
+.BI * linep
+buffer.  The caller must
+eventually
+.BR free (3)
+.BI * linep
+when it is no longer needed.
+.PP
+.BR read_all ()
+returns a caller-owned allocated buffer even when no bytes are read,
+including when
+.I stream
+is already at EOF.  If the stream already has the error indicator set,
+the function returns NULL and, when
+.I psize
+is non-NULL, stores 0 in
+.BI * psize .
+.PP
+.BR fprint_line_buf ()
+and
+.BR fprint_line_str ()
+return EOF if the encoded line length cannot be represented as
+.BR ssize_t ,
+in which case
+.I errno
+is set to
+.BR EOVERFLOW .
 .SH EXAMPLE
 XXX - add EXAMPLE here - XXX
 .SH SEE ALSO

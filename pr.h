@@ -130,7 +130,7 @@ extern char *readline_dup(char **linep, bool strip, size_t *lenp, FILE * stream)
 extern void *read_all(FILE *stream, size_t *psize);
 extern void clearerr_or_fclose(FILE *stream);
 extern ssize_t fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end);
-extern ssize_t fprint_line_str(FILE *stream, char *str, size_t *retlen, int start, int end);
+extern ssize_t fprint_line_str(FILE *stream, char const *str, size_t *retlen, int start, int end);
 extern FILE *open_dir_file(char const *dir, char const *file);
 extern bool fchk_inval_opt(FILE *stream, char const *prog, int ch, int opt);
 extern bool fd_is_ready(char const *name, bool open_test_only, int fd);
