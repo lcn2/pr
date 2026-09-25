@@ -108,7 +108,9 @@ buffer referenced through
 remains caller-owned across successful reads and EOF.  Each call may free
 and replace any prior
 .BI * linep
-buffer.  The caller must
+buffer after a successful read, while EOF preserves the existing
+.BI * linep
+value.  The caller must
 eventually
 .BR free (3)
 .BI * linep

@@ -57,6 +57,10 @@
 /* exit code change of order - use new value in sequencing - coo */
 
 
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,6 +110,9 @@ static const char * const usage_msg =
 static void usage(int exitcode, char const *prog, char const *str);
 static FILE *open_tmp_stream(void const *buf, size_t len);
 static bool stream_equals(FILE *stream, char const *expected, size_t expected_len);
+#if defined(_GNU_SOURCE)
+static ssize_t error_stream_read(void *cookie, char *buf, size_t len);
+#endif
 static bool test_read_all_reuse(void);
 static bool test_read_all_empty_and_state(void);
 static bool test_readline_dup_contract(void);
@@ -233,9 +240,11 @@ stream_equals(FILE *stream, char const *expected, size_t expected_len)
 	warn(__func__, "called with NULL arg(s)");
 	return true;
     }
-    if (fseek(stream, 0L, SEEK_END) != 0) {
-	warnp(__func__, "fseek to end failed");
-	return true;
+
+
+        if (fseek(stream, 0L, SEEK_END) != 0) {
+    	warnp(__func__, "fseek to end failed");
+    	return true;
     }
     stream_len = ftell(stream);
     if (stream_len < 0) {
@@ -266,6 +275,22 @@ done:
     free(buf);
     return failed;
 }
+
+
+#if defined(_GNU_SOURCE)
+/*
+ * error_stream_read - deterministic read failure hook for fopencookie()
+ */
+static ssize_t
+error_stream_read(void *cookie, char *buf, size_t len)
+{
+    (void)cookie;
+    (void)buf;
+    (void)len;
+    errno = EIO;
+    return -1;
+}
+#endif
 
 
 /*
@@ -372,26 +397,32 @@ test_read_all_empty_and_state(void)
     free(data);
     fclose(stream);
 
-    stream = fopen(".", "r");
-    if (stream == NULL) {
-	warnp(__func__, "fopen of current directory failed");
-	return true;
-    }
-    c = fgetc(stream);
-    if (!(c == EOF && ferror(stream) != 0)) {
-	warn(__func__, "failed to preset error indicator on directory stream");
+#if defined(_GNU_SOURCE)
+    {
+	cookie_io_functions_t error_funcs = { .read = error_stream_read };
+
+	stream = fopencookie(NULL, "r", error_funcs);
+	if (stream == NULL) {
+	    warnp(__func__, "fopencookie failed");
+	    return true;
+	}
+	c = fgetc(stream);
+	if (!(c == EOF && ferror(stream) != 0)) {
+	    warn(__func__, "failed to preset error indicator on synthetic error stream");
+	    fclose(stream);
+	    return true;
+	}
+	len = SIZE_MAX;
+	data = read_all(stream, &len);
+	if (data != NULL || len != 0) {
+	    warn(__func__, "read_all failed preset-error contract");
+	    fclose(stream);
+	    free(data);
+	    return true;
+	}
 	fclose(stream);
-	return true;
     }
-    len = SIZE_MAX;
-    data = read_all(stream, &len);
-    if (data != NULL || len != 0) {
-	warn(__func__, "read_all failed preset-error contract");
-	fclose(stream);
-	free(data);
-	return true;
-    }
-    fclose(stream);
+#endif
     return false;
 }
 

@@ -674,8 +674,8 @@ pr(char const *name, char const *fmt, ...)
  *
  * given:
  *      linep   - caller-owned getline(3) buffer or ptr to NULL
- *                if *linep != NULL, the old buffer is freed before reading
- *                the next line and *linep is replaced with a fresh buffer
+ *                on a successful read, any prior *linep buffer is freed and
+ *                replaced with a fresh buffer for the new line
  *      stream - file stream to read from
  *
  * returns:
@@ -687,8 +687,9 @@ pr(char const *name, char const *fmt, ...)
 ssize_t
 readline(char **linep, FILE * stream)
 {
-    size_t linecap = 0;		/* allocated capacity of linep buffer */
+    size_t linecap = 0;		/* allocated capacity of new linep buffer */
     ssize_t ret;		/* getline return and our modified size return */
+    char *old_line = NULL;	/* prior caller-owned buffer */
 
     /*
      * firewall
@@ -698,13 +699,9 @@ readline(char **linep, FILE * stream)
 	not_reached();
     }
 
-    /*
-     * discard any prior caller-owned getline(3) buffer
-     */
-        if (*linep != NULL) {
-	free(*linep);
-	*linep = NULL;
-        }
+        /* preserve any prior caller-owned buffer until we obtain a replacement */
+        old_line = *linep;
+        *linep = NULL;
 
         /*
          * read the line
@@ -714,12 +711,22 @@ readline(char **linep, FILE * stream)
     ret = getline(linep, &linecap, stream);
     if (ret < 0) {
 	if (feof(stream)) {
+	    if (*linep != NULL) {
+		free(*linep);
+	    }
+	    *linep = old_line;
 	    dbg(DBG_VVHIGH, "EOF detected in getline");
 	    return -1; /* EOF found */
 	} else if (ferror(stream)) {
+	    free(*linep);
+	    *linep = old_line;
+	    free(old_line);
 	    errp(96, __func__, "getline() error");
 	    not_reached();
 	} else {
+	    free(*linep);
+	    *linep = old_line;
+	    free(old_line);
 	    errp(97, __func__, "unexpected getline() error");
 	    not_reached();
 	}
@@ -729,9 +736,11 @@ readline(char **linep, FILE * stream)
      * paranoia
      */
     if (*linep == NULL) {
+	free(old_line);
 	err(98, __func__, "*linep is NULL after getline()");
 	not_reached();
     }
+    free(old_line);
 
     /*
      * process trailing newline or lack there of
@@ -756,8 +765,8 @@ readline(char **linep, FILE * stream)
  *
  * given:
  *      linep   - caller-owned getline(3) buffer or ptr to NULL
- *                if *linep != NULL, the old buffer is freed before reading
- *                the next line and *linep is replaced with a fresh buffer
+ *                on a successful read, any prior *linep buffer is freed and
+ *                replaced with a fresh buffer for the new line
  *      strip   - true ==> remove trailing whitespace,
  *                false ==> only remove the trailing newline
  *      lenp    - != NULL ==> pointer to length of final length of line allocated,
@@ -775,9 +784,9 @@ readline(char **linep, FILE * stream)
  * is no longer needed.
  *
  * NOTE: The getline(3) buffer held through *linep remains caller-owned across
- * successful reads and EOF.  Each call may free and replace any prior *linep
- * buffer.  The caller must eventually free(*linep) after the final call if
- * *linep is non-NULL.
+ * successful reads and EOF.  Successful reads may free and replace any prior
+ * *linep buffer.  EOF preserves the existing *linep value.  The caller must
+ * eventually free(*linep) after the final call if *linep is non-NULL.
  */
 char *
 readline_dup(char **linep, bool strip, size_t *lenp, FILE *stream)
