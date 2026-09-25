@@ -719,14 +719,14 @@ readline(char **linep, FILE * stream)
 	    return -1; /* EOF found */
 	} else if (ferror(stream)) {
 	    free(*linep);
-	    *linep = old_line;
 	    free(old_line);
+	    *linep = NULL;
 	    errp(96, __func__, "getline() error");
 	    not_reached();
 	} else {
 	    free(*linep);
-	    *linep = old_line;
 	    free(old_line);
+	    *linep = NULL;
 	    errp(97, __func__, "unexpected getline() error");
 	    not_reached();
 	}
@@ -944,6 +944,14 @@ read_all(FILE *stream, size_t *psize)
     if (ferror(stream)) {
 	warn(__func__, "I/O error flag found at start of reading stream");
 	return NULL;
+    } else if (feof(stream)) {
+	dbg(DBG_VVHIGH, "EOF found at start of reading stream");
+	ret = calloc(1, sizeof(*ret));
+	if (ret == NULL) {
+	    errp(102, __func__, "calloc for empty EOF stream failed");
+	    not_reached();
+	}
+	return ret;
     }
 
     /*
