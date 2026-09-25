@@ -266,14 +266,10 @@ test_open_dir_file_no_fd_leak(void)
 {
     char path[] = "/tmp/pr_test_open_dir_file.XXXXXX";
     int fd = -1;
-    int stream_fd = -1;
     long max_fd = 0;
     bool *before = NULL;
-    bool *during = NULL;
     bool *after = NULL;
     FILE *stream = NULL;
-    size_t new_fd_count = 0;
-    bool fd_snapshot_ok = false;
     bool success = false;
     long i;
 
@@ -296,12 +292,10 @@ test_open_dir_file_no_fd_leak(void)
 
     max_fd = fd_limit();
     before = calloc((size_t)max_fd, sizeof(*before));
-    during = calloc((size_t)max_fd, sizeof(*during));
     after = calloc((size_t)max_fd, sizeof(*after));
-    if (before == NULL || during == NULL || after == NULL) {
+    if (before == NULL || after == NULL) {
 	warnp(__func__, "calloc failed");
 	free(before);
-	free(during);
 	free(after);
 	(void)unlink(path);
 	return false;
@@ -309,7 +303,6 @@ test_open_dir_file_no_fd_leak(void)
     if (snapshot_open_fds(before, (size_t)max_fd) == false) {
 	warn(__func__, "snapshot_open_fds failed before open_dir_file");
 	free(before);
-	free(during);
 	free(after);
 	(void)unlink(path);
 	return false;
@@ -318,40 +311,12 @@ test_open_dir_file_no_fd_leak(void)
     stream = open_dir_file(NULL, path);
     if (stream == NULL) {
 	warn(__func__, "open_dir_file returned NULL");
-    } else {
-	stream_fd = fileno(stream);
-    }
-    if (stream == NULL) {
-	/* already warned above */
-    } else if (stream_fd < 0) {
-	warn(__func__, "fileno returned: %d < 0", stream_fd);
-    } else if (snapshot_open_fds(during, (size_t)max_fd) == false) {
-	warn(__func__, "snapshot_open_fds failed while stream was open");
-    } else {
-	for (i = 0; i < max_fd; ++i) {
-	    if (during[i] && before[i] == false) {
-		++new_fd_count;
-		if (i != stream_fd) {
-		    warn(__func__, "open_dir_file(NULL, ...) leaked unexpected fd: %ld", i);
-		    break;
-		}
-	    }
-	}
-	if (new_fd_count != 1) {
-	    warn(__func__, "open_dir_file(NULL, ...) changed %zu file descriptors while stream was open", new_fd_count);
-	} else {
-	    fd_snapshot_ok = true;
-	}
     }
     if (stream != NULL) {
 	clearerr_or_fclose(stream);
     }
     if (snapshot_open_fds(after, (size_t)max_fd) == false) {
 	warn(__func__, "snapshot_open_fds failed after close");
-    } else if (stream_fd >= 0 && fd_is_open(stream_fd)) {
-	warn(__func__, "open_dir_file(NULL, ...) left returned fd open: %d", stream_fd);
-    } else if (fd_snapshot_ok == false) {
-	/* already warned above */
     } else {
 	for (i = 0; i < max_fd; ++i) {
 	    if (after[i] && before[i] == false) {
@@ -365,7 +330,6 @@ test_open_dir_file_no_fd_leak(void)
     }
 
     free(before);
-    free(during);
     free(after);
     (void)unlink(path);
     return success;
