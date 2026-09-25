@@ -1696,7 +1696,7 @@ open_dir_file(char const *dir, char const *file)
 
 	    (void)close(fd);
 	    errno = saved_errno;
-	    errp(117, __func__, "cannot open stream for file: %s", file);
+	    errp(107, __func__, "cannot open stream for file: %s", file);
 	    not_reached();
 	}
 

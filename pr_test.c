@@ -704,6 +704,12 @@ expect_open_dir_file_rejected(char const *dir, char const *file, int expected_ex
 	warnp(__func__, "waitpid failed");
 	return true;
     }
+    if (WIFSIGNALED(status)) {
+	warn(__func__, "open_dir_file(%s, %s) died from signal %d, expected exit %d",
+	     dir != NULL ? dir : "((NULL dir))", file != NULL ? file : "((NULL file))",
+	     WTERMSIG(status), expected_exit);
+	return true;
+    }
     if (!WIFEXITED(status) || WEXITSTATUS(status) != expected_exit) {
 	warn(__func__, "open_dir_file(%s, %s) exited %d, expected %d",
 	     dir != NULL ? dir : "((NULL dir))", file != NULL ? file : "((NULL file))",
@@ -722,10 +728,12 @@ test_open_dir_file_path_traversal(void)
 {
     static char const sample[] = "path traversal regression\n";
     char dir_template[] = "/tmp/pr_test.open_dir_file.dir.XXXXXX";
+    char allowed_path[128];
     char outside_template[] = "/tmp/pr_test.open_dir_file.outside.XXXXXX";
     char relative_escape[128];
     char *dir = NULL;
     char *outside_base = NULL;
+    FILE *stream = NULL;
     int fd = -1;
     ssize_t written;
     bool failed = false;
@@ -735,9 +743,49 @@ test_open_dir_file_path_traversal(void)
 	warnp(__func__, "mkdtemp failed");
 	return true;
     }
+    if (snprintf(allowed_path, sizeof(allowed_path), "%s/%s", dir, "allowed.txt") >= (int)sizeof(allowed_path)) {
+	warn(__func__, "allowed path overflow");
+	rmdir(dir);
+	return true;
+    }
+    fd = open(allowed_path, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0600);
+    if (fd < 0) {
+	warnp(__func__, "open allowed_path failed");
+	rmdir(dir);
+	return true;
+    }
+    written = write(fd, sample, sizeof(sample) - 1);
+    if (written != (ssize_t)(sizeof(sample) - 1)) {
+	warnp(__func__, "write allowed_path failed");
+	close(fd);
+	unlink(allowed_path);
+	rmdir(dir);
+	return true;
+    }
+    if (close(fd) != 0) {
+	warnp(__func__, "close allowed_path failed");
+	unlink(allowed_path);
+	rmdir(dir);
+	return true;
+    }
+    stream = open_dir_file(dir, "allowed.txt");
+    if (stream_equals(stream, sample, sizeof(sample) - 1) == true) {
+	fclose(stream);
+	unlink(allowed_path);
+	rmdir(dir);
+	return true;
+    }
+    if (fclose(stream) != 0) {
+	warnp(__func__, "fclose allowed_path failed");
+	unlink(allowed_path);
+	rmdir(dir);
+	return true;
+    }
+
     fd = mkstemp(outside_template);
     if (fd < 0) {
 	warnp(__func__, "mkstemp failed");
+	unlink(allowed_path);
 	rmdir(dir);
 	return true;
     }
@@ -745,12 +793,14 @@ test_open_dir_file_path_traversal(void)
     if (written != (ssize_t)(sizeof(sample) - 1)) {
 	warnp(__func__, "write failed");
 	close(fd);
+	unlink(allowed_path);
 	unlink(outside_template);
 	rmdir(dir);
 	return true;
     }
     if (close(fd) != 0) {
 	warnp(__func__, "close failed");
+	unlink(allowed_path);
 	unlink(outside_template);
 	rmdir(dir);
 	return true;
@@ -758,12 +808,14 @@ test_open_dir_file_path_traversal(void)
     outside_base = strrchr(outside_template, '/');
     if (outside_base == NULL || outside_base[1] == '\0') {
 	warn(__func__, "unable to compute outside basename");
+	unlink(allowed_path);
 	unlink(outside_template);
 	rmdir(dir);
 	return true;
     }
     if (snprintf(relative_escape, sizeof(relative_escape), "../%s", outside_base + 1) >= (int)sizeof(relative_escape)) {
 	warn(__func__, "relative escape path overflow");
+	unlink(allowed_path);
 	unlink(outside_template);
 	rmdir(dir);
 	return true;
@@ -778,6 +830,10 @@ test_open_dir_file_path_traversal(void)
 
     if (unlink(outside_template) != 0) {
 	warnp(__func__, "unlink failed");
+	failed = true;
+    }
+    if (unlink(allowed_path) != 0) {
+	warnp(__func__, "unlink allowed_path failed");
 	failed = true;
     }
     if (rmdir(dir) != 0) {

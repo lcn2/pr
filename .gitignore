@@ -18,5 +18,6 @@
 /man/man3/readline_dup.3
 /man/man3/vfpr.3
 pr_test
+/pr_test_manual
 .*.swp
 /tags
