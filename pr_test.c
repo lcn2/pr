@@ -736,6 +736,8 @@ test_open_dir_file_path_traversal(void)
     char allowed_path[128];
     char outside_template[128];
     char relative_escape[128];
+    char intermediate_escape[128];
+    char intermediate_symlink_path[128];
     char symlink_path[128];
     char *dir = NULL;
     char *outside_base = NULL;
@@ -757,6 +759,12 @@ test_open_dir_file_path_traversal(void)
     }
     if (snprintf(symlink_path, sizeof(symlink_path), "%s/%s", dir, "outside-link") >= (int)sizeof(symlink_path)) {
 	warn(__func__, "symlink path overflow");
+	rmdir(dir);
+	return true;
+    }
+    if (snprintf(intermediate_symlink_path, sizeof(intermediate_symlink_path), "%s/%s",
+		 dir, "outside-parent-link") >= (int)sizeof(intermediate_symlink_path)) {
+	warn(__func__, "intermediate symlink path overflow");
 	rmdir(dir);
 	return true;
     }
@@ -852,8 +860,24 @@ test_open_dir_file_path_traversal(void)
 	rmdir(dir);
 	return true;
     }
+    if (snprintf(intermediate_escape, sizeof(intermediate_escape), "outside-parent-link/%s", outside_base + 1) >=
+	(int)sizeof(intermediate_escape)) {
+	warn(__func__, "intermediate escape path overflow");
+	unlink(allowed_path);
+	unlink(outside_template);
+	rmdir(dir);
+	return true;
+    }
     if (symlink(relative_escape, symlink_path) != 0) {
 	warnp(__func__, "symlink failed");
+	unlink(allowed_path);
+	unlink(outside_template);
+	rmdir(dir);
+	return true;
+    }
+    if (symlink("..", intermediate_symlink_path) != 0) {
+	warnp(__func__, "intermediate symlink failed");
+	unlink(symlink_path);
 	unlink(allowed_path);
 	unlink(outside_template);
 	rmdir(dir);
@@ -869,6 +893,9 @@ test_open_dir_file_path_traversal(void)
     if (expect_open_dir_file_rejected(dir, "outside-link", 107) == true) {
 	failed = true;
     }
+    if (expect_open_dir_file_rejected(dir, intermediate_escape, 107) == true) {
+	failed = true;
+    }
 
     if (unlink(outside_template) != 0) {
 	warnp(__func__, "unlink failed");
@@ -880,6 +907,10 @@ test_open_dir_file_path_traversal(void)
     }
     if (unlink(symlink_path) != 0) {
 	warnp(__func__, "unlink symlink_path failed");
+	failed = true;
+    }
+    if (unlink(intermediate_symlink_path) != 0) {
+	warnp(__func__, "unlink intermediate_symlink_path failed");
 	failed = true;
     }
     if (rmdir(dir) != 0) {

@@ -1610,8 +1610,8 @@ fprint_line_str(FILE *stream, char const *str, size_t *retlen, int start, int en
  * If dir == NULL, just try to open the file directly.
  *
  * given:
- *	dir	directory into which we will temporarily chdir or
- *		    NULL ==> do not chdir
+ *	dir	directory relative to which file is opened, or
+ *		    NULL ==> open file directly
  *	file	path of readable file to open,
  *		    and when dir != NULL it must not be absolute and it must not
  *		    contain any .. path component
@@ -1620,7 +1620,7 @@ fprint_line_str(FILE *stream, char const *str, size_t *retlen, int start, int en
  *	open readable file stream
  *
  * NOTE: This function does not return if path is NULL,
- *	 if we cannot chdir to a non-NULL dir, if not a readable file,
+ *	 if we cannot open a non-NULL dir, if not a readable file,
  *	 or if unable to open file.
  *
  * NOTE: This function will NOT return NULL.
@@ -1630,9 +1630,15 @@ open_dir_file(char const *dir, char const *file)
 {
     struct stat fbuf;		/* file status */
     FILE *ret_stream = NULL;	/* open file stream to return */
+    char component_name[PATH_MAX+1]; /* pathname component */
+    char const *component = NULL;	/* current pathname component */
+    char const *end = NULL;	/* end of current pathname component */
     int fd;			/* ret_stream as a file descriptor */
+    int flags;			/* open(2)/openat(2) flags */
+    int walkfd = -1;		/* open directory descriptor used while walking components */
     int ret = 0;		/* libc function return */
     int dirfd = -1;		/* dir file descriptor */
+    size_t component_len;	/* pathname component length */
 
     /*
      * firewall
@@ -1667,19 +1673,110 @@ open_dir_file(char const *dir, char const *file)
 	    not_reached();
 	}
 
-	errno = 0;		/* pre-clear errno for errp() */
-	fd = openat(dirfd, file, O_RDONLY|O_CLOEXEC
-#if defined(O_NOFOLLOW)
-		    |O_NOFOLLOW
-#endif
-		    );
-	if (fd < 0) {
-	    int saved_errno = errno;
+	fd = -1;
+	walkfd = dirfd;
+	for (component = file; *component != '\0'; component = end) {
 
+	    while (*component == '/') {
+		++component;
+	    }
+	    if (*component == '\0') {
+		break;
+	    }
+	    end = component;
+	    while (*end != '\0' && *end != '/') {
+		++end;
+	    }
+	    component_len = (size_t)(end - component);
+	    if (component_len > PATH_MAX) {
+		if (walkfd != dirfd) {
+		    (void)close(walkfd);
+		}
+		(void)close(dirfd);
+		errno = ENAMETOOLONG;
+		errp(107, __func__, "cannot open file: %s", file);
+		not_reached();
+	    }
+	    memcpy(component_name, component, component_len);
+	    component_name[component_len] = '\0';
+
+	    errno = 0;		/* pre-clear errno for errp() */
+	    ret = fstatat(walkfd, component_name, &fbuf, AT_SYMLINK_NOFOLLOW);
+	    if (ret != 0) {
+		int saved_errno = errno;
+
+		if (walkfd != dirfd) {
+		    (void)close(walkfd);
+		}
+		(void)close(dirfd);
+		errno = saved_errno;
+		errp(107, __func__, "cannot open file: %s", file);
+		not_reached();
+	    }
+	    if (S_ISLNK(fbuf.st_mode)) {
+		if (walkfd != dirfd) {
+		    (void)close(walkfd);
+		}
+		(void)close(dirfd);
+		errno = ELOOP;
+		errp(107, __func__, "cannot open file: %s", file);
+		not_reached();
+	    }
+
+	    flags = O_RDONLY|O_CLOEXEC;
+	    if (*end != '\0') {
+		flags |= O_DIRECTORY;
+	    }
+	    errno = 0;		/* pre-clear errno for errp() */
+	    fd = openat(walkfd, component_name, flags);
+	    if (fd < 0) {
+		int saved_errno = errno;
+
+		if (walkfd != dirfd) {
+		    (void)close(walkfd);
+		}
+		(void)close(dirfd);
+		errno = saved_errno;
+		errp(107, __func__, "cannot open file: %s", file);
+		not_reached();
+	    }
+	    if (*end != '\0') {
+		if (walkfd != dirfd) {
+		    errno = 0; /* pre-clear errno for errp() */
+		    if (close(walkfd) != 0) {
+			int saved_errno = errno;
+
+			(void)close(fd);
+			(void)close(dirfd);
+			errno = saved_errno;
+			errp(106, __func__, "failed to close(walkfd)");
+			not_reached();
+		    }
+		}
+		walkfd = fd;
+		fd = -1;
+	    }
+	}
+	if (fd < 0) {
+	    if (walkfd != dirfd) {
+		(void)close(walkfd);
+	    }
 	    (void)close(dirfd);
-	    errno = saved_errno;
+	    errno = ENOENT;
 	    errp(107, __func__, "cannot open file: %s", file);
 	    not_reached();
+	}
+	if (walkfd != dirfd) {
+	    errno = 0;		/* pre-clear errno for errp() */
+	    if (close(walkfd) != 0) {
+		int saved_errno = errno;
+
+		(void)close(fd);
+		(void)close(dirfd);
+		errno = saved_errno;
+		errp(106, __func__, "failed to close(walkfd)");
+		not_reached();
+	    }
 	}
 	errno = 0; /* pre-clear errno for errp() */
 	if (close(dirfd) != 0) {
