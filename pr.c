@@ -61,12 +61,88 @@
  * pr - stdio helper library
  */
 #include "pr.h"
+#include <limits.h>
 
 
 /*
  * global message control variables
  */
 const char *const pr_version = PR_VERSION;    /* library version format: major.minor YYYY-MM-DD */
+
+
+/*
+ * pr_name_or_fallback - normalize a diagnostic name for %s formatting
+ *
+ * given:
+ *	name		diagnostic name or NULL
+ *
+ * returns:
+ *	diagnostic name, or a safe fallback string when name == NULL
+ */
+static char const *
+pr_name_or_fallback(char const *name)
+{
+    if (name == NULL) {
+	return "((NULL name))";
+    }
+    return name;
+}
+
+
+/*
+ * fprint_line_count_add - add to an encoded line length
+ *
+ * given:
+ *	count		address of encoded line length to update
+ *	increment	number of bytes to add to *count
+ *
+ * returns:
+ *	true ==> *count was updated
+ *	false ==> encoded length cannot be represented as ssize_t
+ */
+static bool
+fprint_line_count_add(size_t *count, size_t increment)
+{
+    if (count == NULL) {
+	err(92, __func__, "called with NULL count");
+	not_reached();
+    }
+    if (increment > (size_t)SSIZE_MAX || *count > (size_t)SSIZE_MAX - increment) {
+	errno = EOVERFLOW;
+	return false;
+    }
+    *count += increment;
+    return true;
+}
+
+
+/*
+ * dyn_array_detach_u8 - transfer a dyn_array uint8_t backing store to the caller
+ *
+ * given:
+ *	array_p		address of dyn_array pointer created by dyn_array_create()
+ *
+ * returns:
+ *	backing storage pointer (caller now owns it), or NULL
+ *
+ * This helper releases the heap-allocated dyn_array container while preserving
+ * the allocated backing store for the caller.
+ */
+static uint8_t *
+dyn_array_detach_u8(struct dyn_array **array_p)
+{
+    struct dyn_array *array = NULL;
+    uint8_t *ret = NULL;
+
+    if (array_p == NULL || *array_p == NULL) {
+	return NULL;
+    }
+    array = *array_p;
+    ret = array->data;
+    array->data = NULL;
+    dyn_array_destroy(array_p);
+    return ret;
+}
 
 
 /*
@@ -597,9 +673,9 @@ pr(char const *name, char const *fmt, ...)
  * buffer as needed.  Remove the trailing newline that was read.
  *
  * given:
- *      linep   - allocated line buffer (may be realloced) or ptr to NULL
- *                NULL ==> getline() will calloc() the linep buffer
- *                else ==> getline() might realloc() the linep buffer
+ *      linep   - caller-owned getline(3) buffer or ptr to NULL
+ *                on a successful read, any prior *linep buffer is freed and
+ *                replaced with a fresh buffer for the new line
  *      stream - file stream to read from
  *
  * returns:
@@ -611,8 +687,9 @@ pr(char const *name, char const *fmt, ...)
 ssize_t
 readline(char **linep, FILE * stream)
 {
-    size_t linecap = 0;		/* allocated capacity of linep buffer */
+    size_t linecap = 0;		/* allocated capacity of new linep buffer */
     ssize_t ret;		/* getline return and our modified size return */
+    char *old_line = NULL;	/* prior caller-owned buffer */
 
     /*
      * firewall
@@ -622,20 +699,34 @@ readline(char **linep, FILE * stream)
 	not_reached();
     }
 
-    /*
-     * read the line
+        /* preserve any prior caller-owned buffer until we obtain a replacement */
+        old_line = *linep;
+        *linep = NULL;
+
+        /*
+         * read the line
      */
-    clearerr(stream);
+        clearerr(stream);
     errno = 0;			/* pre-clear errno for errp() */
     ret = getline(linep, &linecap, stream);
     if (ret < 0) {
 	if (feof(stream)) {
+	    if (*linep != NULL) {
+		free(*linep);
+	    }
+	    *linep = old_line;
 	    dbg(DBG_VVHIGH, "EOF detected in getline");
 	    return -1; /* EOF found */
 	} else if (ferror(stream)) {
+	    free(*linep);
+	    free(old_line);
+	    *linep = NULL;
 	    errp(96, __func__, "getline() error");
 	    not_reached();
 	} else {
+	    free(*linep);
+	    free(old_line);
+	    *linep = NULL;
 	    errp(97, __func__, "unexpected getline() error");
 	    not_reached();
 	}
@@ -645,9 +736,11 @@ readline(char **linep, FILE * stream)
      * paranoia
      */
     if (*linep == NULL) {
+	free(old_line);
 	err(98, __func__, "*linep is NULL after getline()");
 	not_reached();
     }
+    free(old_line);
 
     /*
      * process trailing newline or lack there of
@@ -671,9 +764,9 @@ readline(char **linep, FILE * stream)
  * readline_dup - read a line from a stream and duplicate to an allocated buffer.
  *
  * given:
- *      linep   - allocated line buffer (may be realloced) or ptr to NULL
- *                NULL ==> getline() will calloc() the linep buffer
- *                else ==> getline() might realloc() the linep buffer
+ *      linep   - caller-owned getline(3) buffer or ptr to NULL
+ *                on a successful read, any prior *linep buffer is freed and
+ *                replaced with a fresh buffer for the new line
  *      strip   - true ==> remove trailing whitespace,
  *                false ==> only remove the trailing newline
  *      lenp    - != NULL ==> pointer to length of final length of line allocated,
@@ -689,6 +782,11 @@ readline(char **linep, FILE * stream)
  *
  * NOTE: It is the caller's responsibility to free the returned string when it
  * is no longer needed.
+ *
+ * NOTE: The getline(3) buffer held through *linep remains caller-owned across
+ * successful reads and EOF.  Successful reads may free and replace any prior
+ * *linep buffer.  EOF preserves the existing *linep value.  The caller must
+ * eventually free(*linep) after the final call if *linep is non-NULL.
  */
 char *
 readline_dup(char **linep, bool strip, size_t *lenp, FILE *stream)
@@ -767,7 +865,7 @@ readline_dup(char **linep, bool strip, size_t *lenp, FILE *stream)
  *
  * returns:
  *	calloc buffer containing the entire contents of stream,
- *	or NULL is an error occurred.
+ *	or NULL if an error occurred.
  *
  * This function will update *psize, if it was non-NULL, to indicate
  * the amount of data that was read from stream before EOF.
@@ -783,7 +881,11 @@ readline_dup(char **linep, bool strip, size_t *lenp, FILE *stream)
  * These extra bytes(s) WILL be set to NUL.  Thus, a file or stream
  * without a NUL byte will return a NUL terminated C-style string.
  *
- * If no data is read, the calloc buffer will still be NUL terminated.
+ * If no data is read, including when stream is already at EOF, the returned
+ * buffer will still be allocated and NUL terminated.
+ *
+ * If stream already has the error indicator set, no read is attempted and
+ * NULL is returned.
  *
  * If one is using is_string() to check if the data read is a string,
  * one should check for ONE EXTRA BYTE!  That is:
@@ -806,7 +908,7 @@ readline_dup(char **linep, bool strip, size_t *lenp, FILE *stream)
  * amount of data read from stream.  This is also why the function
  * returns a pointer to void.
  *
- * NOTE: It is the caller's responsibility to free the returned string when it
+ * NOTE: It is the caller's responsibility to free the returned buffer when it
  * is no longer needed.
  */
 void *
@@ -831,21 +933,25 @@ read_all(FILE *stream, size_t *psize)
 	not_reached();
     }
 
+    /* initialize caller size consistently */
+    if (psize != NULL) {
+	*psize = 0;
+    }
+
     /*
-     * quick return with no data if stream is already in ERROR or EOF state
+     * quick return with no data if stream is already in ERROR state
      */
-    if (feof(stream) || ferror(stream)) {
-	/* report the I/O condition */
-	if (feof(stream)) {
-	    warn(__func__, "EOF found at start of reading stream");
-	} else if (ferror(stream)) {
-	    warn(__func__, "I/O error flag found at start of reading stream");
-	}
-	/* record empty size, if requested */
-	if (psize != NULL) {
-	    *psize = 0;
-	}
+    if (ferror(stream)) {
+	warn(__func__, "I/O error flag found at start of reading stream");
 	return NULL;
+    } else if (feof(stream)) {
+	dbg(DBG_VVHIGH, "EOF found at start of reading stream");
+	ret = calloc(1, sizeof(*ret));
+	if (ret == NULL) {
+	    errp(102, __func__, "calloc for empty EOF stream failed");
+	    not_reached();
+	}
+	return ret;
     }
 
     /*
@@ -880,7 +986,7 @@ read_all(FILE *stream, size_t *psize)
 	errno = 0;			/* pre-clear errno for warnp() */
 	last_read = fread(read_buf, sizeof(uint8_t), READ_ALL_CHUNK, stream);
 	fread_errno = errno;	/* save errno from fread() call for later reporting if needed */
-	dbg(DBG_VVHIGH, "%s: fread(read_buf, %zu, %d, stream) read cycle: %ld returned: %zd",
+	dbg(DBG_VVHIGH, "%s: fread(read_buf, %zu, %d, stream) read cycle: %ld returned: %zu",
 			 __func__, sizeof(uint8_t), READ_ALL_CHUNK, read_cycle, last_read);
 	++read_cycle;
 
@@ -921,7 +1027,7 @@ read_all(FILE *stream, size_t *psize)
 		warnp(__func__, "fread returned: %zu I/O error detected while reading stream at: %jd bytes",
 			        last_read, used);
 	    } else {
-		warnp(__func__, "fread returned %jd although neither the EOF nor ERROR flag were set: "
+		warnp(__func__, "fread returned %zu although neither the EOF nor ERROR flag were set: "
 				"assuming EOF anyway", last_read);
 	    }
 
@@ -931,7 +1037,7 @@ read_all(FILE *stream, size_t *psize)
 	    break;
 	}
     } while (true);
-    dbg(DBG_VVHIGH, "%s(stream, psize): last_read: %jd total bytes: %jd allocated: %jd "
+    dbg(DBG_VVHIGH, "%s(stream, psize): last_read: %zu total bytes: %jd allocated: %jd "
 		    "read_cycle: %ld move_cycle: %ld seek_cycle: %ld",
 		    __func__, last_read, dyn_array_tell(array), dyn_array_alloced(array),
 		    read_cycle, move_cycle, dyn_array_seek_cycle);
@@ -944,9 +1050,9 @@ read_all(FILE *stream, size_t *psize)
     }
 
     /*
-     * return the allocated buffer
+     * return the allocated buffer and release the dyn_array container
      */
-    ret = dyn_array_addr(array, uint8_t, 0);
+    ret = dyn_array_detach_u8(&array);
     return ret;
 }
 
@@ -1014,7 +1120,9 @@ clearerr_or_fclose(FILE *stream)
  *
  * The stream is flushed before returning.
  *
- * The errno value is restore to its original state before returning.
+ * The errno value is restored to its original state before returning, unless
+ * the encoded output length cannot be represented.  In that case this
+ * function returns EOF and sets errno to EOVERFLOW.
  *
  * Examples:
  *	line_len = fprint_line_buf(stderr, buf, len, '<', '>');
@@ -1081,7 +1189,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 	}
 
 	/* count the character printed */
-	++count;
+	if (fprint_line_count_add(&count, 1) == false) {
+	    return EOF;
+	}
     }
 
     /*
@@ -1110,7 +1220,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 	    }
 
 	    /* count the 4 characters */
-	    count += 4;
+	    if (fprint_line_count_add(&count, 4) == false) {
+		return EOF;
+	    }
 
 	/*
 	 * case: ASCII character
@@ -1135,7 +1247,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case '\a':	/* alert (beep, bell) */
@@ -1151,7 +1265,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case '\b':	/* backspace */
@@ -1167,7 +1283,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case 0x1b:	/* escape */
@@ -1183,7 +1301,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case '\f':	/* form feed page break */
@@ -1199,7 +1319,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case '\n':	/* newline */
@@ -1215,7 +1337,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case '\r':	/* carriage return */
@@ -1231,7 +1355,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case '\t':	/* horizontal tab */
@@ -1247,7 +1373,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case '\v':	/* vertical tab */
@@ -1263,7 +1391,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    case '\\':	/* backslash */
@@ -1300,7 +1430,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		    }
 
 		    /* count the character printed */
-		    ++count;
+		    if (fprint_line_count_add(&count, 1) == false) {
+			return EOF;
+		    }
 
 		/*
 		 * case: ASCII non-printable character
@@ -1318,7 +1450,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		    }
 
 		    /* count the 4 characters */
-		    count += 4;
+		    if (fprint_line_count_add(&count, 4) == false) {
+			return EOF;
+		    }
 		}
 		break;
 	    }
@@ -1341,7 +1475,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 	}
 
 	/* count the character printed */
-	++count;
+	if (fprint_line_count_add(&count, 1) == false) {
+	    return EOF;
+	}
     }
 
     /*
@@ -1398,7 +1534,7 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
  *	EOF ==> write error or NULL buf
  */
 ssize_t
-fprint_line_str(FILE *stream, char *str, size_t *retlen, int start, int end)
+fprint_line_str(FILE *stream, char const *str, size_t *retlen, int start, int end)
 {
     ssize_t count = 0;		/* number of characters in line */
     int saved_errno = 0;	/* saved errno to restore before returning */
@@ -1695,6 +1831,8 @@ fd_is_ready(char const *name, bool open_test_only, int fd)
     struct pollfd fds;		/* poll selector */
     int ret;			/* return code holder */
 
+    name = pr_name_or_fallback(name);
+
     /*
      * firewall - fd < 0 returns false
      */
@@ -1868,6 +2006,8 @@ void
 flush_tty(char const *name, bool flush_stdin, bool abort_on_error)
 {
     int ret;			/* return code holder */
+
+    name = pr_name_or_fallback(name);
 
     /*
      * case: flush_stdin is true

@@ -57,9 +57,14 @@
 /* exit code change of order - use new value in sequencing - coo */
 
 
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>
 
 /*
@@ -103,6 +108,16 @@ static const char * const usage_msg =
  * forward declarations
  */
 static void usage(int exitcode, char const *prog, char const *str);
+static FILE *open_tmp_stream(void const *buf, size_t len);
+static bool stream_equals(FILE *stream, char const *expected, size_t expected_len);
+#if defined(_GNU_SOURCE)
+static ssize_t error_stream_read(void *cookie, char *buf, size_t len);
+#endif
+static bool test_read_all_reuse(void);
+static bool test_read_all_empty_and_state(void);
+static bool test_readline_dup_contract(void);
+static bool test_fprint_line_helpers(void);
+static bool test_null_name_diagnostics(void);
 
 
 int
@@ -157,7 +172,21 @@ main(int argc, char *argv[])
 	not_reached();
     }
 
-    /* XXX - add test code here - XXX */
+    if (test_read_all_reuse() == true) {
+	error = true;
+    }
+    if (test_read_all_empty_and_state() == true) {
+	error = true;
+    }
+    if (test_readline_dup_contract() == true) {
+	error = true;
+    }
+    if (test_fprint_line_helpers() == true) {
+	error = true;
+    }
+    if (test_null_name_diagnostics() == true) {
+	error = true;
+    }
 
     /*
      * exit based on the test result
@@ -166,6 +195,391 @@ main(int argc, char *argv[])
 	exit(1); /*ooo*/
     }
     exit(0); /*ooo*/
+}
+
+
+/*
+ * open_tmp_stream - create a temporary stream with optional contents
+ */
+static FILE *
+open_tmp_stream(void const *buf, size_t len)
+{
+    FILE *stream = NULL;
+    size_t written;
+
+    stream = tmpfile();
+    if (stream == NULL) {
+	warnp(__func__, "tmpfile failed");
+	return NULL;
+    }
+    if (len > 0) {
+	written = fwrite(buf, 1, len, stream);
+	if (written != len) {
+    	warnp(__func__, "fwrite wrote %zu bytes, expected %zu", written, len);
+    	fclose(stream);
+    	return NULL;
+	}
+    }
+    rewind(stream);
+    return stream;
+}
+
+
+/*
+ * stream_equals - compare the contents of a stream with expected data
+ */
+static bool
+stream_equals(FILE *stream, char const *expected, size_t expected_len)
+{
+    char *buf = NULL;
+    long stream_len;
+    size_t got;
+    bool failed = true;
+
+    if (stream == NULL || expected == NULL) {
+	warn(__func__, "called with NULL arg(s)");
+	return true;
+    }
+
+
+        if (fseek(stream, 0L, SEEK_END) != 0) {
+    	warnp(__func__, "fseek to end failed");
+    	return true;
+    }
+    stream_len = ftell(stream);
+    if (stream_len < 0) {
+	warnp(__func__, "ftell failed");
+	return true;
+    }
+    if ((size_t)stream_len != expected_len) {
+	warn(__func__, "stream length mismatch: got %ld expected %zu", stream_len, expected_len);
+	return true;
+    }
+    rewind(stream);
+    buf = calloc(expected_len + 1, sizeof(*buf));
+    if (buf == NULL) {
+	warnp(__func__, "calloc failed");
+	return true;
+    }
+    got = fread(buf, 1, expected_len, stream);
+    if (got != expected_len) {
+	warnp(__func__, "fread read %zu bytes, expected %zu", got, expected_len);
+	goto done;
+    }
+    if (memcmp(buf, expected, expected_len) != 0) {
+	warn(__func__, "stream contents did not match expected output");
+	goto done;
+    }
+    failed = false;
+done:
+    free(buf);
+    return failed;
+}
+
+
+#if defined(_GNU_SOURCE)
+/*
+ * error_stream_read - deterministic read failure hook for fopencookie()
+ */
+static ssize_t
+error_stream_read(void *cookie, char *buf, size_t len)
+{
+    (void)cookie;
+    (void)buf;
+    (void)len;
+    errno = EIO;
+    return -1;
+}
+#endif
+
+
+/*
+ * test_read_all_reuse - verify read_all() caller ownership across repeated calls
+ */
+static bool
+test_read_all_reuse(void)
+{
+    unsigned char *sample = NULL;
+    size_t sample_len = READ_ALL_CHUNK + 17;
+    size_t i;
+    bool failed = false;
+
+    sample = calloc(sample_len, sizeof(*sample));
+    if (sample == NULL) {
+	warnp(__func__, "calloc failed");
+	return true;
+    }
+    for (i = 0; i < sample_len; ++i) {
+	sample[i] = (unsigned char)(i & 0xff);
+    }
+
+    for (i = 0; i < 32; ++i) {
+	FILE *stream = NULL;
+	size_t len = 1;
+	unsigned char *data = NULL;
+
+	stream = open_tmp_stream(sample, sample_len);
+	if (stream == NULL) {
+    	failed = true;
+    	break;
+	}
+	data = read_all(stream, &len);
+	if (data == NULL) {
+    	warn(__func__, "read_all returned NULL on iteration %zu", i);
+    	failed = true;
+    	fclose(stream);
+    	break;
+	}
+	if (len != sample_len) {
+    	warn(__func__, "read_all length mismatch: got %zu expected %zu", len, sample_len);
+    	failed = true;
+	} else if (memcmp(data, sample, sample_len) != 0) {
+    	warn(__func__, "read_all data mismatch on iteration %zu", i);
+    	failed = true;
+	} else if (data[len] != '\0') {
+    	warn(__func__, "read_all buffer missing trailing NUL on iteration %zu", i);
+    	failed = true;
+	}
+	free(data);
+	fclose(stream);
+	if (failed == true) {
+    	break;
+	}
+    }
+    free(sample);
+    return failed;
+}
+
+
+/*
+ * test_read_all_empty_and_state - verify empty, EOF, and error flag handling
+ */
+static bool
+test_read_all_empty_and_state(void)
+{
+    FILE *stream = NULL;
+    unsigned char *data = NULL;
+    size_t len = SIZE_MAX;
+    int c;
+
+    stream = open_tmp_stream(NULL, 0);
+    if (stream == NULL) {
+	return true;
+    }
+    data = read_all(stream, &len);
+    if (data == NULL || len != 0 || data[0] != '\0') {
+	warn(__func__, "read_all failed empty-input contract");
+	fclose(stream);
+	free(data);
+	return true;
+    }
+    free(data);
+    fclose(stream);
+
+    stream = open_tmp_stream(NULL, 0);
+    if (stream == NULL) {
+	return true;
+    }
+    c = fgetc(stream);
+    if (c != EOF || feof(stream) == 0) {
+	warn(__func__, "failed to preset EOF on empty stream");
+	fclose(stream);
+	return true;
+    }
+    len = SIZE_MAX;
+    data = read_all(stream, &len);
+    if (data == NULL || len != 0 || data[0] != '\0') {
+	warn(__func__, "read_all failed preset-EOF contract");
+	fclose(stream);
+	free(data);
+	return true;
+    }
+    free(data);
+    fclose(stream);
+
+#if defined(_GNU_SOURCE)
+    {
+	cookie_io_functions_t error_funcs = { .read = error_stream_read };
+
+	stream = fopencookie(NULL, "r", error_funcs);
+	if (stream == NULL) {
+	    warnp(__func__, "fopencookie failed");
+	    return true;
+	}
+	c = fgetc(stream);
+	if (!(c == EOF && ferror(stream) != 0)) {
+	    warn(__func__, "failed to preset error indicator on synthetic error stream");
+	    fclose(stream);
+	    return true;
+	}
+	len = SIZE_MAX;
+	data = read_all(stream, &len);
+	if (data != NULL || len != 0) {
+	    warn(__func__, "read_all failed preset-error contract");
+	    fclose(stream);
+	    free(data);
+	    return true;
+	}
+	fclose(stream);
+    }
+#endif
+    return false;
+}
+
+
+/*
+ * test_readline_dup_contract - verify caller ownership of getline buffer and EOF behavior
+ */
+static bool
+test_readline_dup_contract(void)
+{
+    static char const input[] = "trim me \n";
+    FILE *stream = NULL;
+    char *line = NULL;
+    char *dup = NULL;
+    size_t len = 0;
+
+    stream = open_tmp_stream(input, sizeof(input) - 1);
+    if (stream == NULL) {
+	return true;
+    }
+    dup = readline_dup(&line, true, &len, stream);
+    if (dup == NULL || strcmp(dup, "trim me") != 0 || len != strlen("trim me")) {
+	warn(__func__, "readline_dup failed normal read contract");
+	fclose(stream);
+	free(dup);
+	free(line);
+	return true;
+    }
+    if (line == NULL || strcmp(line, "trim me ") != 0) {
+	warn(__func__, "getline buffer contract mismatch after readline_dup");
+	fclose(stream);
+	free(dup);
+	free(line);
+	return true;
+    }
+    free(dup);
+
+    dup = readline_dup(&line, false, &len, stream);
+    if (dup != NULL) {
+	warn(__func__, "readline_dup returned data at EOF");
+	fclose(stream);
+	free(dup);
+	free(line);
+	return true;
+    }
+    if (line == NULL) {
+	warn(__func__, "getline buffer unexpectedly lost ownership at EOF");
+	fclose(stream);
+	return true;
+    }
+    free(line);
+    fclose(stream);
+
+    stream = open_tmp_stream(NULL, 0);
+    if (stream == NULL) {
+	return true;
+    }
+    line = NULL;
+    dup = readline_dup(&line, false, &len, stream);
+    if (dup != NULL) {
+	warn(__func__, "readline_dup empty-stream EOF contract mismatch");
+	fclose(stream);
+	free(dup);
+	free(line);
+	return true;
+    }
+    free(line);
+    fclose(stream);
+    return false;
+}
+
+
+/*
+ * test_fprint_line_helpers - verify encoded output and length accounting helpers
+ */
+static bool
+test_fprint_line_helpers(void)
+{
+    static unsigned char const buf[] = {'<', 'A', '\n', '>', '\\', '\0'};
+    static char const expected[] = "<\\x3cA\\n\\x3e\\\\\\0>";
+    FILE *stream = NULL;
+    ssize_t count;
+    size_t len = 0;
+
+    stream = tmpfile();
+    if (stream == NULL) {
+	warnp(__func__, "tmpfile failed");
+	return true;
+    }
+    count = fprint_line_buf(stream, buf, sizeof(buf), '<', '>');
+    if (count != (ssize_t)(sizeof(expected) - 1)) {
+	warn(__func__, "fprint_line_buf returned %zd, expected %zu", count, sizeof(expected) - 1);
+	fclose(stream);
+	return true;
+    }
+    if (stream_equals(stream, expected, sizeof(expected) - 1) == true) {
+	fclose(stream);
+	return true;
+    }
+    fclose(stream);
+
+    count = fprint_line_buf(NULL, buf, sizeof(buf), '<', '>');
+    if (count != (ssize_t)(sizeof(expected) - 1)) {
+	warn(__func__, "fprint_line_buf(NULL, ...) returned %zd, expected %zu", count, sizeof(expected) - 1);
+	return true;
+    }
+
+    count = fprint_line_str(NULL, "hello", &len, '"', '"');
+    if (count != 7 || len != 5) {
+	warn(__func__, "fprint_line_str length mismatch: count=%zd len=%zu", count, len);
+	return true;
+    }
+    return false;
+}
+
+
+/*
+ * test_null_name_diagnostics - verify NULL diagnostic names use a safe fallback
+ */
+static bool
+test_null_name_diagnostics(void)
+{
+    int pipefd[2];
+    int saved_verbosity = verbosity_level;
+    ssize_t written;
+    bool ready = false;
+
+    if (pipe(pipefd) != 0) {
+	warnp(__func__, "pipe failed");
+	return true;
+    }
+    verbosity_level = DBG_VVHIGH;
+    if (fd_is_ready(NULL, true, -1) != false) {
+	warn(__func__, "fd_is_ready(NULL, true, -1) unexpectedly returned true");
+	close(pipefd[0]);
+	close(pipefd[1]);
+	verbosity_level = saved_verbosity;
+	return true;
+    }
+    written = write(pipefd[1], "x", 1);
+    if (written != 1) {
+	warnp(__func__, "write to pipe failed");
+	close(pipefd[0]);
+	close(pipefd[1]);
+	verbosity_level = saved_verbosity;
+	return true;
+    }
+    ready = fd_is_ready(NULL, false, pipefd[0]);
+    flush_tty(NULL, false, false);
+    close(pipefd[0]);
+    close(pipefd[1]);
+    verbosity_level = saved_verbosity;
+    if (ready != true) {
+	warn(__func__, "fd_is_ready(NULL, false, pipefd[0]) unexpectedly returned false");
+	return true;
+    }
+    return false;
 }
 
 
