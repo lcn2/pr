@@ -853,7 +853,7 @@ read_all(FILE *stream, size_t *psize)
      */
     array = dyn_array_create(sizeof(uint8_t), READ_ALL_CHUNK, INITIAL_BUF_SIZE, true);
     if (array == NULL) {
-	errp(116, __func__, "dyn_array_create failed");
+	errp(102, __func__, "dyn_array_create failed");
 	not_reached();
     }
     ++dyn_array_seek_cycle;
@@ -868,7 +868,7 @@ read_all(FILE *stream, size_t *psize)
 	 */
 	used = dyn_array_tell(array);
 	if (used < 0) {
-	    err(117, __func__, "dyn_array_tell returned: %jd < 0", used);
+	    err(103, __func__, "dyn_array_tell returned: %jd < 0", used);
 	    not_reached();
 	}
 	moved = dyn_array_seek(array, READ_ALL_CHUNK, SEEK_CUR);
@@ -886,7 +886,7 @@ read_all(FILE *stream, size_t *psize)
 	dbg(DBG_VVHIGH, "%s: about to start read cycle: %ld", __func__, read_cycle);
 	read_buf = dyn_array_addr(array, uint8_t, used);
 	if (read_buf == NULL) {
-	    err(118, __func__, "dyn_array_addr returned NULL at offset: %jd", used);
+	    err(104, __func__, "dyn_array_addr returned NULL at offset: %jd", used);
 	    not_reached();
 	}
 	errno = 0;			/* pre-clear errno for warnp() */
@@ -919,7 +919,7 @@ read_all(FILE *stream, size_t *psize)
 	}
 	used = dyn_array_tell(array);
 	if (used < 0) {
-	    err(119, __func__, "dyn_array_tell returned: %jd < 0 after read cycle: %ld", used, read_cycle);
+	    err(105, __func__, "dyn_array_tell returned: %jd < 0 after read cycle: %ld", used, read_cycle);
 	    not_reached();
 	}
 
@@ -964,7 +964,7 @@ read_all(FILE *stream, size_t *psize)
      */
     ret = dyn_array_addr(array, uint8_t, 0);
     if (ret == NULL) {
-	err(120, __func__, "dyn_array_addr returned NULL for array base");
+	err(106, __func__, "dyn_array_addr returned NULL for array base");
 	not_reached();
     }
     return ret;
@@ -1499,7 +1499,7 @@ open_dir_file(char const *dir, char const *file)
      * firewall
      */
     if (file == NULL) {
-	err(102, __func__, "called with NULL file");
+	err(107, __func__, "called with NULL file");
 	not_reached();
     }
 
@@ -1515,7 +1515,7 @@ open_dir_file(char const *dir, char const *file)
 	errno = 0;                  /* pre-clear errno for errp() */
 	cwd = open(".", O_RDONLY|O_DIRECTORY|O_CLOEXEC);
 	if (cwd < 0) {
-	    errp(106, __func__, "cannot open .");
+	    errp(108, __func__, "cannot open .");
 	    not_reached();
 	}
 
@@ -1532,7 +1532,7 @@ open_dir_file(char const *dir, char const *file)
 	dirfd = open(dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC);
 #endif
 	if (dirfd < 0) {
-	    errp(107, __func__, "dir is not a readable and searchable directory: %s", dir);
+	    errp(109, __func__, "dir is not a readable and searchable directory: %s", dir);
 	    not_reached();
 	}
 
@@ -1542,7 +1542,7 @@ open_dir_file(char const *dir, char const *file)
 	errno = 0;		/* pre-clear errno for errp() */
 	ret = fchdir(dirfd);
 	if (ret < 0) {
-	    errp(108, __func__, "cannot cd %s", dir);
+	    errp(110, __func__, "cannot cd %s", dir);
 	    not_reached();
 	}
 
@@ -1551,7 +1551,7 @@ open_dir_file(char const *dir, char const *file)
 	 */
 	errno = 0; /* pre-clear errno for errp() */
 	if (close(dirfd) != 0) {
-	    errp(109, __func__, "failed to close(dirfd)");
+	    errp(111, __func__, "failed to close(dirfd)");
 	    not_reached();
 	}
 	dirfd = -1;
@@ -1563,12 +1563,12 @@ open_dir_file(char const *dir, char const *file)
     errno = 0;		/* pre-clear errno for errp() */
     ret_stream = fopen(file, "r");
     if (ret_stream == NULL) {
-	errp(110, __func__, "cannot open file: %s", file);
+	errp(112, __func__, "cannot open file: %s", file);
 	not_reached();
     }
     fd = fileno(ret_stream);
     if (fd < 0) {
-	errp(111, __func__, "cannot determine fileno for open file: %s", file);
+	errp(113, __func__, "cannot determine fileno for open file: %s", file);
 	not_reached();
     }
 
@@ -1578,11 +1578,11 @@ open_dir_file(char const *dir, char const *file)
     errno = 0;
     ret = fstat(fd, &fbuf);
     if (ret < 0) {
-	errp(112, __func__, "file does not exist: %s", file);
+	errp(114, __func__, "file does not exist: %s", file);
 	not_reached();
     }
     if (!S_ISREG(fbuf.st_mode)) {
-	err(113, __func__, "file is not a regular file: %s", file);
+	err(115, __func__, "file is not a regular file: %s", file);
 	not_reached();
     }
 
@@ -1597,13 +1597,13 @@ open_dir_file(char const *dir, char const *file)
 	errno = 0;                  /* pre-clear errno for errp() */
 	ret = fchdir(cwd);
 	if (ret < 0) {
-	    errp(114, __func__, "cannot fchdir to the previous current directory");
+	    errp(116, __func__, "cannot fchdir to the previous current directory");
 	    not_reached();
 	}
 	errno = 0;                  /* pre-clear errno for errp() */
 	ret = close(cwd);
 	if (ret < 0) {
-	    errp(115, __func__, "close of previous current directory failed");
+	    errp(117, __func__, "close of previous current directory failed");
 	    not_reached();
 	}
     }
@@ -1911,7 +1911,7 @@ flush_tty(char const *name, bool flush_stdin, bool abort_on_error)
 	    if (ret < 0) {
 		/* exit or error return depending on abort_on_error */
 		if (abort_on_error) {
-		    errp(113, name, "fflush(stdin): error code: %d", ret);
+		    errp(118, name, "fflush(stdin): error code: %d", ret);
 		    not_reached();
 		} else {
 		    dbg(DBG_HIGH, "%s: called via %s: fflush(stdin) failed: %s", __func__, name, strerror(errno));
@@ -1936,7 +1936,7 @@ flush_tty(char const *name, bool flush_stdin, bool abort_on_error)
 	if (ret < 0) {
 	    /* exit or error return depending on abort_on_error */
 	    if (abort_on_error) {
-		errp(114, name, "fflush(stdout): error code: %d", ret);
+		errp(119, name, "fflush(stdout): error code: %d", ret);
 		not_reached();
 	    } else {
 		dbg(DBG_HIGH, "%s: called from %s: fflush(stdout) failed: %s", __func__, name, strerror(errno));
@@ -1960,7 +1960,7 @@ flush_tty(char const *name, bool flush_stdin, bool abort_on_error)
 	if (ret < 0) {
 	    /* exit or error return depending on abort_on_error */
 	    if (abort_on_error) {
-		errp(115, name, "fflush(stderr): error code: %d", ret);
+		errp(120, name, "fflush(stderr): error code: %d", ret);
 		not_reached();
 	    } else {
 		dbg(DBG_HIGH, "%s: called from %s: fflush(stderr) failed: %s", __func__, name, strerror(errno));
