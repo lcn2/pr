@@ -5,7 +5,7 @@
  *
  *      -- J.R.R. Tolkien
  *
- * Copyright (c) 2008-2025 by Landon Curt Noll and Cody Boone Ferguson.
+ * Copyright (c) 2008-2026 by Landon Curt Noll and Cody Boone Ferguson.
  * All rights reserved.
  *
  * Permission to use, copy, modify, and distribute this software and
@@ -75,7 +75,7 @@
  */
 #define REQUIRED_ARGS (0)	/* number of required arguments on the command line */
 #define PR_TEST_BASENAME "pr_test"
-#define PR_TEST_VERSION "1.1.0 2025-09-20"
+#define PR_TEST_VERSION "1.2.0 2026-09-25"
 
 
 /*
