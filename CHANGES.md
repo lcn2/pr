@@ -1,7 +1,7 @@
 # Major changes to the IOCCC entry toolkit
 
 
-## Pending
+## Release 1.2.0 2026-09-25
 
 Fixed `read_all()` to release the dynamic-array container after transferring
 ownership of its backing buffer to the caller, and clarified the API behavior
