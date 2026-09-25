@@ -124,6 +124,8 @@ fd_limit(void)
     max_fd = sysconf(_SC_OPEN_MAX);
     if (max_fd <= 0) {
 	max_fd = 1024;
+    } else if (max_fd > 256) {
+	max_fd = 256;
     }
     return max_fd;
 }
