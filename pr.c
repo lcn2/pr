@@ -90,6 +90,45 @@ pr_name_or_fallback(char const *name)
 
 
 /*
+ * pr_path_has_dotdot_component - determine if a pathname contains a .. component
+ *
+ * given:
+ *	path		pathname to inspect
+ *
+ * returns:
+ *	true ==> path contains a .. component
+ *	false ==> otherwise
+ */
+static bool
+pr_path_has_dotdot_component(char const *path)
+{
+    char const *component = NULL;
+    char const *end = NULL;
+
+    if (path == NULL) {
+	err(72, __func__, "called with NULL path");
+	not_reached();
+    }
+    for (component = path; *component != '\0'; component = end) {
+	while (*component == '/') {
+	    ++component;
+	}
+	if (*component == '\0') {
+	    break;
+	}
+	end = component;
+	while (*end != '\0' && *end != '/') {
+	    ++end;
+	}
+	if ((end - component) == 2 && component[0] == '.' && component[1] == '.') {
+	    return true;
+	}
+    }
+    return false;
+}
+
+
+/*
  * fprint_line_count_add - add to an encoded line length
  *
  * given:
@@ -1390,7 +1429,9 @@ fprint_line_buf(FILE *stream, const void *buf, size_t len, int start, int end)
 		}
 
 		/* count the 2 characters */
-		count += 2;
+		if (fprint_line_count_add(&count, 2) == false) {
+		    return EOF;
+		}
 		break;
 
 	    default:	/* other characters */
@@ -1563,15 +1604,17 @@ fprint_line_str(FILE *stream, char const *str, size_t *retlen, int start, int en
 /*
  * open_dir_file - open a readable file in a given directory
  *
- * Temporarily chdir to the directory, if non-NULL, try to open the file,
- * and then chdir back to the current directory.
+ * If dir is non-NULL, open file relative to dir without changing the
+ * process-global current working directory.
  *
- * If dir == NULL, just try to open the file without a chdir.
+ * If dir == NULL, just try to open the file directly.
  *
  * given:
  *	dir	directory into which we will temporarily chdir or
  *		    NULL ==> do not chdir
- *	file	path of readable file to open
+ *	file	path of readable file to open,
+ *		    and when dir != NULL it must not be absolute and it must not
+ *		    contain any .. path component
  *
  * returns:
  *	open readable file stream
@@ -1589,7 +1632,6 @@ open_dir_file(char const *dir, char const *file)
     FILE *ret_stream = NULL;	/* open file stream to return */
     int fd;			/* ret_stream as a file descriptor */
     int ret = 0;		/* libc function return */
-    int cwd = -1;		/* current working directory */
     int dirfd = -1;		/* dir file descriptor */
 
     /*
@@ -1600,28 +1642,19 @@ open_dir_file(char const *dir, char const *file)
 	not_reached();
     }
 
-    /*
-     * note the current directory so we can restore it later, after the
-     * fchdir(dir) below
-     */
-    errno = 0;                  /* pre-clear errno for errp() */
-    cwd = open(".", O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-    if (cwd < 0) {
-        errp(103, __func__, "cannot open .");
-        not_reached();
-    }
-
-    /*
-     * Temporarily chdir if dir is non-NULL
-     */
-    if (dir != NULL && cwd >= 0) {
+    if (dir != NULL) {
 
 	/*
-	 * open dir so we can check it and then fchdir(2) to it
-	 *
-	 * This "complication" avoids a filesystem race condition.
-	 *
-	 * NOTE: This will also verify that dir is a readable and searchable directory.
+	 * The caller requested a file inside dir, so reject file paths that can
+	 * escape via openat(2) semantics.
+	 */
+	if (file[0] == '/' || pr_path_has_dotdot_component(file)) {
+	    err(116, __func__, "file path escapes directory: %s", file);
+	    not_reached();
+	}
+
+	/*
+	 * open dir so we can safely open file relative to it
 	 */
 #if defined(O_SEARCH)
 	dirfd = open(dir, O_RDONLY|O_SEARCH|O_DIRECTORY|O_CLOEXEC);
@@ -1633,39 +1666,56 @@ open_dir_file(char const *dir, char const *file)
 	    not_reached();
 	}
 
-	/*
-	 * chdir to to the directory
-	 */
 	errno = 0;		/* pre-clear errno for errp() */
-	ret = fchdir(dirfd);
-	if (ret < 0) {
-	    errp(105, __func__, "cannot cd %s", dir);
+	fd = openat(dirfd, file, O_RDONLY|O_CLOEXEC
+#if defined(O_NOFOLLOW)
+		    |O_NOFOLLOW
+#endif
+		    );
+	if (fd < 0) {
+	    int saved_errno = errno;
+
+	    (void)close(dirfd);
+	    errno = saved_errno;
+	    errp(107, __func__, "cannot open file: %s", file);
 	    not_reached();
 	}
-
-	/*
-	 * close the dir file descriptor now that we have changed to the directory
-	 */
 	errno = 0; /* pre-clear errno for errp() */
 	if (close(dirfd) != 0) {
+	    int saved_errno = errno;
+
+	    (void)close(fd);
+	    errno = saved_errno;
 	    errp(106, __func__, "failed to close(dirfd)");
 	    not_reached();
 	}
-    }
+	errno = 0;		/* pre-clear errno for errp() */
+	ret_stream = fdopen(fd, "r");
+	if (ret_stream == NULL) {
+	    int saved_errno = errno;
 
-    /*
-     * open the file
-     */
-    errno = 0;		/* pre-clear errno for errp() */
-    ret_stream = fopen(file, "r");
-    if (ret_stream == NULL) {
-	errp(107, __func__, "cannot open file: %s", file);
-	not_reached();
-    }
-    fd = fileno(ret_stream);
-    if (fd < 0) {
-	errp(108, __func__, "cannot determine fileno for open file: %s", file);
-	not_reached();
+	    (void)close(fd);
+	    errno = saved_errno;
+	    errp(117, __func__, "cannot open stream for file: %s", file);
+	    not_reached();
+	}
+
+    } else {
+
+	/*
+	 * open the file
+	 */
+	errno = 0;		/* pre-clear errno for errp() */
+	ret_stream = fopen(file, "r");
+	if (ret_stream == NULL) {
+	    errp(107, __func__, "cannot open file: %s", file);
+	    not_reached();
+	}
+	fd = fileno(ret_stream);
+	if (fd < 0) {
+	    errp(108, __func__, "cannot determine fileno for open file: %s", file);
+	    not_reached();
+	}
     }
 
     /*
@@ -1680,28 +1730,6 @@ open_dir_file(char const *dir, char const *file)
     if (!S_ISREG(fbuf.st_mode)) {
 	err(110, __func__, "file is not a regular file: %s", file);
 	not_reached();
-    }
-
-    /*
-     * if we did a chdir to dir, chdir back to previous cwd
-     */
-    if (dir != NULL && cwd >= 0) {
-
-	/*
-	 * switch back to the previous current directory
-	 */
-	errno = 0;                  /* pre-clear errno for errp() */
-	ret = fchdir(cwd);
-	if (ret < 0) {
-	    errp(111, __func__, "cannot fchdir to the previous current directory");
-	    not_reached();
-	}
-	errno = 0;                  /* pre-clear errno for errp() */
-	ret = close(cwd);
-	if (ret < 0) {
-	    errp(112, __func__, "close of previous current directory failed");
-	    not_reached();
-	}
     }
 
     /*

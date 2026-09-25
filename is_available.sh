@@ -147,13 +147,14 @@ shellcheck)
 
     # form a trivial bash script
     #
-    export TMP_BASH_SCRIPT=".tmp.$NAME.BASH_SCRIPT.$$.sh"
-    trap 'rm -f $TMP_BASH_SCRIPT; exit' 0 1 2 3 15
-    rm -f "$TMP_BASH_SCRIPT"
-    if [[ -e $TMP_BASH_SCRIPT ]]; then
-	echo "$0: ERROR: cannot remove temporary bash script: $TMP_BASH_SCRIPT" 1>&2
+    export TMP_BASH_SCRIPT
+    TMP_BASH_SCRIPT="$(mktemp "${TMPDIR:-/tmp}/.${NAME}.BASH_SCRIPT.XXXXXX.sh")"
+    status="$?"
+    if [[ $status -ne 0 || -z "$TMP_BASH_SCRIPT" ]]; then
+	echo "$0: ERROR: cannot create temporary bash script path" 1>&2
 	exit 10
     fi
+    trap 'rm -f -- "$TMP_BASH_SCRIPT"' EXIT HUP INT QUIT TERM
     printf '%s\n%s\n' '#!/usr/bin/env bash' 'exit 0' > "$TMP_BASH_SCRIPT"
     if [[ ! -e $TMP_BASH_SCRIPT ]]; then
 	echo "$0: ERROR: cannot create temporary bash script file: $TMP_BASH_SCRIPT" 1>&2
@@ -203,13 +204,14 @@ picky)
 
     # form a trivial C source file
     #
-    export TMP_C_SRC=".tmp.$NAME.C_SRC.$$.c"
-    trap 'rm -f $TMP_C_SRC; exit' 0 1 2 3 15
-    rm -f "$TMP_C_SRC"
-    if [[ -e $TMP_C_SRC ]]; then
-	echo "$0: ERROR: cannot remove temporary C source: $TMP_C_SRC" 1>&2
+    export TMP_C_SRC
+    TMP_C_SRC="$(mktemp "${TMPDIR:-/tmp}/.${NAME}.C_SRC.XXXXXX.c")"
+    status="$?"
+    if [[ $status -ne 0 || -z "$TMP_C_SRC" ]]; then
+	echo "$0: ERROR: cannot create temporary C source path" 1>&2
 	exit 13
     fi
+    trap 'rm -f -- "$TMP_C_SRC"' EXIT HUP INT QUIT TERM
     cat > "$TMP_C_SRC" << EOF
 #include <stdio.h>
 
@@ -301,13 +303,14 @@ independ)
 
     # form a trivial C source file
     #
-    export TMP_C_SRC=".tmp.$NAME.C_SRC.$$.c"
-    trap 'rm -f $TMP_C_SRC; exit' 0 1 2 3 15
-    rm -f "$TMP_C_SRC"
-    if [[ -e $TMP_C_SRC ]]; then
-	echo "$0: ERROR: cannot remove temporary C source: $TMP_C_SRC" 1>&2
+    export TMP_C_SRC
+    TMP_C_SRC="$(mktemp "${TMPDIR:-/tmp}/.${NAME}.C_SRC.XXXXXX.c")"
+    status="$?"
+    if [[ $status -ne 0 || -z "$TMP_C_SRC" ]]; then
+	echo "$0: ERROR: cannot create temporary C source path" 1>&2
 	exit 19
     fi
+    trap 'rm -f -- "$TMP_C_SRC"' EXIT HUP INT QUIT TERM
     cat > "$TMP_C_SRC" << EOF
 #include <stdio.h>
 
@@ -354,13 +357,14 @@ seqcexit)
 
     # form a trivial C source file
     #
-    export TMP_C_SRC=".tmp.$NAME.C_SRC.$$.c"
-    trap 'rm -f $TMP_C_SRC; exit' 0 1 2 3 15
-    rm -f "$TMP_C_SRC"
-    if [[ -e $TMP_C_SRC ]]; then
-	echo "$0: ERROR: cannot remove temporary C source: $TMP_C_SRC" 1>&2
+    export TMP_C_SRC
+    TMP_C_SRC="$(mktemp "${TMPDIR:-/tmp}/.${NAME}.C_SRC.XXXXXX.c")"
+    status="$?"
+    if [[ $status -ne 0 || -z "$TMP_C_SRC" ]]; then
+	echo "$0: ERROR: cannot create temporary C source path" 1>&2
 	exit 21
     fi
+    trap 'rm -f -- "$TMP_C_SRC"' EXIT HUP INT QUIT TERM
     cat > "$TMP_C_SRC" << EOF
 #include <stdio.h>
 
@@ -412,13 +416,14 @@ checknr)
 
     # form a trivial man page with an error
     #
-    export TMP_MAN_PAGE=".tmp.$NAME.MAN_PAGE.$$.1"
-    trap 'rm -f $TMP_MAN_PAGE; exit' 0 1 2 3 15
-    rm -f "$TMP_MAN_PAGE"
-    if [[ -e $TMP_MAN_PAGE ]]; then
-	echo "$0: ERROR: cannot remove temporary erroneous man page: $TMP_MAN_PAGE" 1>&2
+    export TMP_MAN_PAGE
+    TMP_MAN_PAGE="$(mktemp "${TMPDIR:-/tmp}/.${NAME}.MAN_PAGE.XXXXXX.1")"
+    status="$?"
+    if [[ $status -ne 0 || -z "$TMP_MAN_PAGE" ]]; then
+	echo "$0: ERROR: cannot create temporary erroneous man page path" 1>&2
 	exit 21
     fi
+    trap 'rm -f -- "$TMP_MAN_PAGE"' EXIT HUP INT QUIT TERM
     cat > "$TMP_MAN_PAGE" << EOF
 
 .TH foo 1 "11 July 2024" "foo" "foo"

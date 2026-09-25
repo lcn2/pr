@@ -65,6 +65,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 /*
@@ -118,6 +120,10 @@ static bool test_read_all_empty_and_state(void);
 static bool test_readline_dup_contract(void);
 static bool test_fprint_line_helpers(void);
 static bool test_null_name_diagnostics(void);
+static long count_open_fds(void);
+static bool test_open_dir_file_fd_leak(void);
+static bool expect_open_dir_file_rejected(char const *dir, char const *file);
+static bool test_open_dir_file_path_traversal(void);
 
 
 int
@@ -185,6 +191,12 @@ main(int argc, char *argv[])
 	error = true;
     }
     if (test_null_name_diagnostics() == true) {
+	error = true;
+    }
+    if (test_open_dir_file_fd_leak() == true) {
+	error = true;
+    }
+    if (test_open_dir_file_path_traversal() == true) {
 	error = true;
     }
 
@@ -580,6 +592,198 @@ test_null_name_diagnostics(void)
 	return true;
     }
     return false;
+}
+
+
+/*
+ * count_open_fds - count currently open file descriptors for this process
+ */
+static long
+count_open_fds(void)
+{
+    long count = 0;
+    long fd;
+    long maxfd = sysconf(_SC_OPEN_MAX);
+
+    if (maxfd < 0) {
+	maxfd = 256;
+    }
+    for (fd = 0; fd < maxfd; ++fd) {
+	errno = 0;
+	if (fcntl((int)fd, F_GETFD) != -1 || errno != EBADF) {
+	    ++count;
+	}
+    }
+    return count;
+}
+
+
+/*
+ * test_open_dir_file_fd_leak - verify open_dir_file() does not leak cwd fds when dir == NULL
+ */
+static bool
+test_open_dir_file_fd_leak(void)
+{
+    static char const sample[] = "fd leak regression\n";
+    char path[] = "/tmp/pr_test.open_dir_file.XXXXXX";
+    FILE *stream = NULL;
+    int fd = -1;
+    ssize_t written;
+    long before;
+    long during;
+    long after;
+    bool failed = false;
+
+    fd = mkstemp(path);
+    if (fd < 0) {
+	warnp(__func__, "mkstemp failed");
+	return true;
+    }
+    written = write(fd, sample, sizeof(sample) - 1);
+    if (written != (ssize_t)(sizeof(sample) - 1)) {
+	warnp(__func__, "write failed");
+	close(fd);
+	unlink(path);
+	return true;
+    }
+    if (close(fd) != 0) {
+	warnp(__func__, "close failed");
+	unlink(path);
+	return true;
+    }
+
+    before = count_open_fds();
+    stream = open_dir_file(NULL, path);
+    during = count_open_fds();
+    if (during != before + 1) {
+	warn(__func__, "open_dir_file(NULL, ...) leaked file descriptors: before=%ld during=%ld", before, during);
+	failed = true;
+    }
+    if (fclose(stream) != 0) {
+	warnp(__func__, "fclose failed");
+	failed = true;
+    }
+    after = count_open_fds();
+    if (after != before) {
+	warn(__func__, "open_dir_file(NULL, ...) left file descriptors open after fclose: before=%ld after=%ld",
+	     before, after);
+	failed = true;
+    }
+    if (unlink(path) != 0) {
+	warnp(__func__, "unlink failed");
+	failed = true;
+    }
+    return failed;
+}
+
+
+/*
+ * expect_open_dir_file_rejected - verify open_dir_file() rejects a dangerous path
+ */
+static bool
+expect_open_dir_file_rejected(char const *dir, char const *file)
+{
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    if (pid < 0) {
+	warnp(__func__, "fork failed");
+	return true;
+    }
+    if (pid == 0) {
+	FILE *stream = NULL;
+
+	stream = open_dir_file(dir, file);
+	if (stream != NULL) {
+	    fclose(stream);
+	}
+	_exit(0);
+    }
+    if (waitpid(pid, &status, 0) < 0) {
+	warnp(__func__, "waitpid failed");
+	return true;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) == 0) {
+	warn(__func__, "open_dir_file(%s, %s) unexpectedly accepted a dangerous path",
+	     dir != NULL ? dir : "((NULL dir))", file != NULL ? file : "((NULL file))");
+	return true;
+    }
+    return false;
+}
+
+
+/*
+ * test_open_dir_file_path_traversal - verify open_dir_file() rejects escaping paths
+ */
+static bool
+test_open_dir_file_path_traversal(void)
+{
+    static char const sample[] = "path traversal regression\n";
+    char dir_template[] = "/tmp/pr_test.open_dir_file.dir.XXXXXX";
+    char outside_template[] = "/tmp/pr_test.open_dir_file.outside.XXXXXX";
+    char relative_escape[128];
+    char *dir = NULL;
+    char *outside_base = NULL;
+    int fd = -1;
+    ssize_t written;
+    bool failed = false;
+
+    dir = mkdtemp(dir_template);
+    if (dir == NULL) {
+	warnp(__func__, "mkdtemp failed");
+	return true;
+    }
+    fd = mkstemp(outside_template);
+    if (fd < 0) {
+	warnp(__func__, "mkstemp failed");
+	rmdir(dir);
+	return true;
+    }
+    written = write(fd, sample, sizeof(sample) - 1);
+    if (written != (ssize_t)(sizeof(sample) - 1)) {
+	warnp(__func__, "write failed");
+	close(fd);
+	unlink(outside_template);
+	rmdir(dir);
+	return true;
+    }
+    if (close(fd) != 0) {
+	warnp(__func__, "close failed");
+	unlink(outside_template);
+	rmdir(dir);
+	return true;
+    }
+    outside_base = strrchr(outside_template, '/');
+    if (outside_base == NULL || outside_base[1] == '\0') {
+	warn(__func__, "unable to compute outside basename");
+	unlink(outside_template);
+	rmdir(dir);
+	return true;
+    }
+    if (snprintf(relative_escape, sizeof(relative_escape), "../%s", outside_base + 1) >= (int)sizeof(relative_escape)) {
+	warn(__func__, "relative escape path overflow");
+	unlink(outside_template);
+	rmdir(dir);
+	return true;
+    }
+
+    if (expect_open_dir_file_rejected(dir, outside_template) == true) {
+	failed = true;
+    }
+    if (expect_open_dir_file_rejected(dir, relative_escape) == true) {
+	failed = true;
+    }
+
+    if (unlink(outside_template) != 0) {
+	warnp(__func__, "unlink failed");
+	failed = true;
+    }
+    if (rmdir(dir) != 0) {
+	warnp(__func__, "rmdir failed");
+	failed = true;
+    }
+    return failed;
 }
 
 
