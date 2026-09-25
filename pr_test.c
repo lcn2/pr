@@ -273,6 +273,7 @@ test_open_dir_file_no_fd_leak(void)
     bool *after = NULL;
     FILE *stream = NULL;
     size_t new_fd_count = 0;
+    bool fd_snapshot_ok = false;
     bool success = false;
     long i;
 
@@ -315,8 +316,14 @@ test_open_dir_file_no_fd_leak(void)
     }
 
     stream = open_dir_file(NULL, path);
-    stream_fd = fileno(stream);
-    if (stream_fd < 0) {
+    if (stream == NULL) {
+	warn(__func__, "open_dir_file returned NULL");
+    } else {
+	stream_fd = fileno(stream);
+    }
+    if (stream == NULL) {
+	/* already warned above */
+    } else if (stream_fd < 0) {
 	warn(__func__, "fileno returned: %d < 0", stream_fd);
     } else if (snapshot_open_fds(during, (size_t)max_fd) == false) {
 	warn(__func__, "snapshot_open_fds failed while stream was open");
@@ -332,6 +339,8 @@ test_open_dir_file_no_fd_leak(void)
 	}
 	if (new_fd_count != 1) {
 	    warn(__func__, "open_dir_file(NULL, ...) changed %zu file descriptors while stream was open", new_fd_count);
+	} else {
+	    fd_snapshot_ok = true;
 	}
     }
     if (stream != NULL) {
@@ -341,7 +350,7 @@ test_open_dir_file_no_fd_leak(void)
 	warn(__func__, "snapshot_open_fds failed after close");
     } else if (stream_fd >= 0 && fd_is_open(stream_fd)) {
 	warn(__func__, "open_dir_file(NULL, ...) left returned fd open: %d", stream_fd);
-    } else if (new_fd_count != 1) {
+    } else if (fd_snapshot_ok == false) {
 	/* already warned above */
     } else {
 	for (i = 0; i < max_fd; ++i) {
