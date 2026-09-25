@@ -122,7 +122,7 @@ static bool test_fprint_line_helpers(void);
 static bool test_null_name_diagnostics(void);
 static long count_open_fds(void);
 static bool test_open_dir_file_fd_leak(void);
-static bool expect_open_dir_file_rejected(char const *dir, char const *file);
+static bool expect_open_dir_file_rejected(char const *dir, char const *file, int expected_exit);
 static bool test_open_dir_file_path_traversal(void);
 
 
@@ -681,7 +681,7 @@ test_open_dir_file_fd_leak(void)
  * expect_open_dir_file_rejected - verify open_dir_file() rejects a dangerous path
  */
 static bool
-expect_open_dir_file_rejected(char const *dir, char const *file)
+expect_open_dir_file_rejected(char const *dir, char const *file, int expected_exit)
 {
     pid_t pid;
     int status;
@@ -704,9 +704,10 @@ expect_open_dir_file_rejected(char const *dir, char const *file)
 	warnp(__func__, "waitpid failed");
 	return true;
     }
-    if (!WIFEXITED(status) || WEXITSTATUS(status) == 0) {
-	warn(__func__, "open_dir_file(%s, %s) unexpectedly accepted a dangerous path",
-	     dir != NULL ? dir : "((NULL dir))", file != NULL ? file : "((NULL file))");
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != expected_exit) {
+	warn(__func__, "open_dir_file(%s, %s) exited %d, expected %d",
+	     dir != NULL ? dir : "((NULL dir))", file != NULL ? file : "((NULL file))",
+	     WIFEXITED(status) ? WEXITSTATUS(status) : -1, expected_exit);
 	return true;
     }
     return false;
@@ -768,10 +769,10 @@ test_open_dir_file_path_traversal(void)
 	return true;
     }
 
-    if (expect_open_dir_file_rejected(dir, outside_template) == true) {
+    if (expect_open_dir_file_rejected(dir, outside_template, 116) == true) {
 	failed = true;
     }
-    if (expect_open_dir_file_rejected(dir, relative_escape) == true) {
+    if (expect_open_dir_file_rejected(dir, relative_escape, 116) == true) {
 	failed = true;
     }
 

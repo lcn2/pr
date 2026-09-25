@@ -21,6 +21,30 @@ NAME=$(basename "$0")
 export NAME
 export PRINT_WHERE=""
 export V_FLAG="0"
+declare -a TMP_FILES=()
+
+
+cleanup_tmp_files()
+{
+    local status="$?"
+
+    trap - EXIT HUP INT QUIT TERM
+    if [[ ${#TMP_FILES[@]} -gt 0 ]]; then
+	rm -f -- "${TMP_FILES[@]}"
+    fi
+    exit "$status"
+}
+
+
+register_tmp_file()
+{
+    if [[ -n "$1" ]]; then
+	TMP_FILES+=("$1")
+    fi
+}
+
+
+trap cleanup_tmp_files EXIT HUP INT QUIT TERM
 
 export USAGE="usage: $0 [-h] [-V] [-v level] [-w] tool
 
@@ -154,7 +178,7 @@ shellcheck)
 	echo "$0: ERROR: cannot create temporary bash script path" 1>&2
 	exit 10
     fi
-    trap 'rm -f -- "$TMP_BASH_SCRIPT"' EXIT HUP INT QUIT TERM
+    register_tmp_file "$TMP_BASH_SCRIPT"
     printf '%s\n%s\n' '#!/usr/bin/env bash' 'exit 0' > "$TMP_BASH_SCRIPT"
     if [[ ! -e $TMP_BASH_SCRIPT ]]; then
 	echo "$0: ERROR: cannot create temporary bash script file: $TMP_BASH_SCRIPT" 1>&2
@@ -211,7 +235,7 @@ picky)
 	echo "$0: ERROR: cannot create temporary C source path" 1>&2
 	exit 13
     fi
-    trap 'rm -f -- "$TMP_C_SRC"' EXIT HUP INT QUIT TERM
+    register_tmp_file "$TMP_C_SRC"
     cat > "$TMP_C_SRC" << EOF
 #include <stdio.h>
 
@@ -310,7 +334,7 @@ independ)
 	echo "$0: ERROR: cannot create temporary C source path" 1>&2
 	exit 19
     fi
-    trap 'rm -f -- "$TMP_C_SRC"' EXIT HUP INT QUIT TERM
+    register_tmp_file "$TMP_C_SRC"
     cat > "$TMP_C_SRC" << EOF
 #include <stdio.h>
 
@@ -364,7 +388,7 @@ seqcexit)
 	echo "$0: ERROR: cannot create temporary C source path" 1>&2
 	exit 21
     fi
-    trap 'rm -f -- "$TMP_C_SRC"' EXIT HUP INT QUIT TERM
+    register_tmp_file "$TMP_C_SRC"
     cat > "$TMP_C_SRC" << EOF
 #include <stdio.h>
 
@@ -423,7 +447,7 @@ checknr)
 	echo "$0: ERROR: cannot create temporary erroneous man page path" 1>&2
 	exit 21
     fi
-    trap 'rm -f -- "$TMP_MAN_PAGE"' EXIT HUP INT QUIT TERM
+    register_tmp_file "$TMP_MAN_PAGE"
     cat > "$TMP_MAN_PAGE" << EOF
 
 .TH foo 1 "11 July 2024" "foo" "foo"
