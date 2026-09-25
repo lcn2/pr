@@ -1649,7 +1649,8 @@ open_dir_file(char const *dir, char const *file)
 	 * escape via openat(2) semantics.
 	 */
 	if (file[0] == '/' || pr_path_has_dotdot_component(file)) {
-	    err(116, __func__, "file path escapes directory: %s", file);
+	    errno = EACCES;
+	    errp(107, __func__, "cannot open file: %s", file);
 	    not_reached();
 	}
 

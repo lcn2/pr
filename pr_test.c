@@ -736,6 +736,7 @@ test_open_dir_file_path_traversal(void)
     char allowed_path[128];
     char outside_template[128];
     char relative_escape[128];
+    char symlink_path[128];
     char *dir = NULL;
     char *outside_base = NULL;
     char *parent_slash = NULL;
@@ -751,6 +752,11 @@ test_open_dir_file_path_traversal(void)
     }
     if (snprintf(allowed_path, sizeof(allowed_path), "%s/%s", dir, "allowed.txt") >= (int)sizeof(allowed_path)) {
 	warn(__func__, "allowed path overflow");
+	rmdir(dir);
+	return true;
+    }
+    if (snprintf(symlink_path, sizeof(symlink_path), "%s/%s", dir, "outside-link") >= (int)sizeof(symlink_path)) {
+	warn(__func__, "symlink path overflow");
 	rmdir(dir);
 	return true;
     }
@@ -846,11 +852,21 @@ test_open_dir_file_path_traversal(void)
 	rmdir(dir);
 	return true;
     }
+    if (symlink(outside_template, symlink_path) != 0) {
+	warnp(__func__, "symlink failed");
+	unlink(allowed_path);
+	unlink(outside_template);
+	rmdir(dir);
+	return true;
+    }
 
-    if (expect_open_dir_file_rejected(dir, outside_template, 116) == true) {
+    if (expect_open_dir_file_rejected(dir, outside_template, 107) == true) {
 	failed = true;
     }
-    if (expect_open_dir_file_rejected(dir, relative_escape, 116) == true) {
+    if (expect_open_dir_file_rejected(dir, relative_escape, 107) == true) {
+	failed = true;
+    }
+    if (expect_open_dir_file_rejected(dir, "outside-link", 107) == true) {
 	failed = true;
     }
 
@@ -860,6 +876,10 @@ test_open_dir_file_path_traversal(void)
     }
     if (unlink(allowed_path) != 0) {
 	warnp(__func__, "unlink allowed_path failed");
+	failed = true;
+    }
+    if (unlink(symlink_path) != 0) {
+	warnp(__func__, "unlink symlink_path failed");
 	failed = true;
     }
     if (rmdir(dir) != 0) {
